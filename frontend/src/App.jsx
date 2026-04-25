@@ -31,7 +31,7 @@ import {
   signup,
   storeSession
 } from "./services/api";
-import { classifyFileType, matchesDateFilter } from "./utils/fileHelpers";
+import { classifyFileType, formatBytes, matchesDateFilter } from "./utils/fileHelpers";
 import { extractTextFromFile } from "./utils/fileParsers";
 import { buildAppTheme } from "./theme";
 
@@ -68,11 +68,46 @@ export default function App() {
 
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [notifications, setNotifications] = useState([]);
 
   const [fileToDelete, setFileToDelete] = useState(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   const appTheme = useMemo(() => buildAppTheme(mode), [mode]);
+  const unreadNotificationCount = useMemo(
+    () => notifications.filter((item) => !item.read).length,
+    [notifications]
+  );
+
+  function addNotification(type, message) {
+    const timestamp = new Date().toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+
+    setNotifications((prev) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        type,
+        message,
+        timestamp,
+        read: false
+      },
+      ...prev
+    ].slice(0, 50));
+  }
+
+  function markNotificationsAsRead() {
+    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
+  }
+
+  function clearNotifications() {
+    setNotifications([]);
+  }
 
   async function loadFiles(activeToken, query) {
     if (!activeToken) {
@@ -135,6 +170,51 @@ export default function App() {
       .slice(0, 4);
   }, [files]);
 
+  const topFileTypes = useMemo(() => {
+    return Object.entries(dashboardStats.byType)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([type, count]) => ({
+        type,
+        count,
+        percentage: dashboardStats.total > 0 ? Math.round((count / dashboardStats.total) * 100) : 0
+      }));
+  }, [dashboardStats]);
+
+  const weeklyUploadActivity = useMemo(() => {
+    const days = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i -= 1) {
+      const day = new Date(now);
+      day.setDate(now.getDate() - i);
+      day.setHours(0, 0, 0, 0);
+
+      days.push({
+        key: day.toISOString().slice(0, 10),
+        label: day.toLocaleDateString(undefined, { weekday: "short" }),
+        count: 0
+      });
+    }
+
+    files.forEach((file) => {
+      const date = new Date(file.lastModified);
+      date.setHours(0, 0, 0, 0);
+      const key = date.toISOString().slice(0, 10);
+      const match = days.find((item) => item.key === key);
+      if (match) {
+        match.count += 1;
+      }
+    });
+
+    const maxCount = Math.max(...days.map((d) => d.count), 1);
+    return {
+      days,
+      maxCount,
+      totalUploads: days.reduce((sum, day) => sum + day.count, 0)
+    };
+  }, [files]);
+
   async function handleLogin(payload) {
     setAuthLoading(true);
     try {
@@ -171,6 +251,7 @@ export default function App() {
     setUser(null);
     setFiles([]);
     setPendingFiles([]);
+    setNotifications([]);
     setSearchQuery("");
     setTypeFilter("all");
     setDateFilter("all");
@@ -250,14 +331,17 @@ export default function App() {
         const summaryParts = [];
         if (uploadedCount > 0) {
           summaryParts.push(`${uploadedCount} uploaded`);
+          addNotification("success", `${uploadedCount} file(s) uploaded successfully`);
         }
         if (duplicateCount > 0) {
           summaryParts.push(`${duplicateCount} duplicate rejected`);
+          addNotification("warning", `${duplicateCount} duplicate file(s) were rejected`);
         }
         setSuccessMessage(summaryParts.join(". "));
       }
 
       if (retryQueue.length > 0) {
+        addNotification("error", `${retryQueue.length} file(s) failed and remain in queue`);
         setErrorMessage(`${retryQueue.length} file(s) failed and remain in queue.`);
       }
     } finally {
@@ -328,6 +412,12 @@ export default function App() {
             quickSearch={searchQuery}
             onQuickSearchChange={setSearchQuery}
             userName={user?.name || "User"}
+            userEmail={user?.email || ""}
+            userCreatedAt={user?.createdAt || ""}
+            notifications={notifications}
+            unreadNotificationCount={unreadNotificationCount}
+            onOpenNotifications={markNotificationsAsRead}
+            onClearNotifications={clearNotifications}
             onLogout={handleLogout}
           />
 
@@ -343,30 +433,115 @@ export default function App() {
                       <LoadingState title="Loading dashboard..." subtitle="Fetching latest file insights" />
                     ) : (
                       <Stack spacing={2}>
-                        <Typography variant="h6">Overview</Typography>
+                        <Stack
+                          direction={{ xs: "column", md: "row" }}
+                          justifyContent="space-between"
+                          alignItems={{ xs: "flex-start", md: "center" }}
+                          spacing={1}
+                        >
+                          <Box>
+                            <Typography variant="h6">Dashboard Overview</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Track your documents, activity trends, and file type distribution.
+                            </Typography>
+                          </Box>
+                          <Stack direction="row" spacing={1}>
+                            <Button variant="outlined" onClick={() => setActiveNav("files")}>Browse Files</Button>
+                            <Button variant="contained" onClick={() => setActiveNav("upload")}>Upload New</Button>
+                          </Stack>
+                        </Stack>
+
                         <Grid container spacing={1.5}>
                           <Grid item xs={12} sm={6} lg={3}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
                               <Typography variant="body2" color="text.secondary">Total Files</Typography>
                               <Typography variant="h5">{dashboardStats.total}</Typography>
                             </Box>
                           </Grid>
                           <Grid item xs={12} sm={6} lg={3}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
                               <Typography variant="body2" color="text.secondary">Storage Used</Typography>
-                              <Typography variant="h5">{Math.max(1, Math.round(dashboardStats.storage / 1024))} KB</Typography>
+                              <Typography variant="h5">{formatBytes(dashboardStats.storage)}</Typography>
                             </Box>
                           </Grid>
                           <Grid item xs={12} sm={6} lg={3}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
-                              <Typography variant="body2" color="text.secondary">PDF Files</Typography>
-                              <Typography variant="h5">{dashboardStats.byType.pdf || 0}</Typography>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
+                              <Typography variant="body2" color="text.secondary">Active File Types</Typography>
+                              <Typography variant="h5">{Object.keys(dashboardStats.byType).length}</Typography>
                             </Box>
                           </Grid>
                           <Grid item xs={12} sm={6} lg={3}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
-                              <Typography variant="body2" color="text.secondary">Code Files</Typography>
-                              <Typography variant="h5">{dashboardStats.byType.code || 0}</Typography>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
+                              <Typography variant="body2" color="text.secondary">Uploads (7 Days)</Typography>
+                              <Typography variant="h5">{weeklyUploadActivity.totalUploads}</Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+
+                        <Grid container spacing={1.5}>
+                          <Grid item xs={12} lg={6}>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper", height: "100%" }}>
+                              <Typography variant="subtitle1" fontWeight={700}>Top File Types</Typography>
+                              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                Distribution of the most common document types in your account.
+                              </Typography>
+
+                              {topFileTypes.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">No data yet.</Typography>
+                              ) : (
+                                <Stack spacing={1.4}>
+                                  {topFileTypes.map((item) => (
+                                    <Box key={item.type}>
+                                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+                                        <Typography variant="body2" sx={{ textTransform: "capitalize" }}>{item.type}</Typography>
+                                        <Typography variant="caption" color="text.secondary">{item.count} files ({item.percentage}%)</Typography>
+                                      </Stack>
+                                      <Box sx={{ height: 8, borderRadius: 999, bgcolor: "action.hover", overflow: "hidden" }}>
+                                        <Box
+                                          sx={{
+                                            width: `${item.percentage}%`,
+                                            height: "100%",
+                                            bgcolor: "primary.main"
+                                          }}
+                                        />
+                                      </Box>
+                                    </Box>
+                                  ))}
+                                </Stack>
+                              )}
+                            </Box>
+                          </Grid>
+
+                          <Grid item xs={12} lg={6}>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper", height: "100%" }}>
+                              <Typography variant="subtitle1" fontWeight={700}>Last 7 Days Activity</Typography>
+                              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                Daily upload count for the past week.
+                              </Typography>
+
+                              <Stack direction="row" alignItems="flex-end" spacing={1} sx={{ minHeight: 120 }}>
+                                {weeklyUploadActivity.days.map((day) => {
+                                  const height = Math.max(8, Math.round((day.count / weeklyUploadActivity.maxCount) * 84));
+                                  return (
+                                    <Box key={day.key} sx={{ flex: 1, textAlign: "center" }}>
+                                      <Box
+                                        sx={{
+                                          height,
+                                          borderRadius: 1,
+                                          bgcolor: day.count > 0 ? "secondary.main" : "action.disabledBackground",
+                                          transition: "0.2s ease"
+                                        }}
+                                      />
+                                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.6 }}>
+                                        {day.label}
+                                      </Typography>
+                                      <Typography variant="caption" sx={{ display: "block" }}>
+                                        {day.count}
+                                      </Typography>
+                                    </Box>
+                                  );
+                                })}
+                              </Stack>
                             </Box>
                           </Grid>
                         </Grid>
@@ -378,11 +553,37 @@ export default function App() {
                             description="Upload files to populate your dashboard overview."
                           />
                         ) : (
-                          <FileGrid
-                            files={recentFiles}
-                            searchQuery=""
-                            onRequestDelete={setFileToDelete}
-                          />
+                          <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, overflow: "hidden", bgcolor: "background.paper" }}>
+                            {recentFiles.map((file, index) => (
+                              <Box
+                                key={file.id}
+                                sx={{
+                                  p: 1.5,
+                                  borderTop: index === 0 ? "none" : "1px solid",
+                                  borderColor: "divider"
+                                }}
+                              >
+                                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                  <Box sx={{ minWidth: 0 }}>
+                                    <Typography variant="body2" fontWeight={600} noWrap>
+                                      {file.name}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" noWrap>
+                                      {file.path}
+                                    </Typography>
+                                  </Box>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    <Typography variant="caption" color="text.secondary" sx={{ textTransform: "capitalize" }}>
+                                      {file.type}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {formatBytes(file.size)}
+                                    </Typography>
+                                  </Stack>
+                                </Stack>
+                              </Box>
+                            ))}
+                          </Box>
                         )}
                       </Stack>
                     )}
@@ -391,6 +592,28 @@ export default function App() {
 
                 {activeNav === "files" && (
                   <>
+                    <Stack
+                      direction={{ xs: "column", md: "row" }}
+                      spacing={1}
+                      justifyContent="space-between"
+                      alignItems={{ xs: "flex-start", md: "center" }}
+                    >
+                      <Box>
+                        <Typography variant="h6">Files</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Search, filter, and manage your indexed files.
+                        </Typography>
+                      </Box>
+                      <Button
+                        color="error"
+                        variant="outlined"
+                        onClick={() => setConfirmDeleteAll(true)}
+                        disabled={files.length === 0}
+                      >
+                        Delete All Files
+                      </Button>
+                    </Stack>
+
                     <SearchFilterBar
                       nameQuery={searchQuery}
                       onNameQueryChange={setSearchQuery}
@@ -435,19 +658,6 @@ export default function App() {
                   />
                 )}
 
-                {activeNav === "settings" && (
-                  <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 1 }}>
-                      Settings
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Delete all indexed file metadata from your account.
-                    </Typography>
-                    <Button color="error" variant="contained" onClick={() => setConfirmDeleteAll(true)}>
-                      Delete All Files
-                    </Button>
-                  </Box>
-                )}
               </Stack>
             </Grid>
           </Grid>

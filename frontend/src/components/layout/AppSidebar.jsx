@@ -2,7 +2,6 @@ import React from "react";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import FolderOpenOutlinedIcon from "@mui/icons-material/FolderOpenOutlined";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
@@ -10,8 +9,7 @@ import Stack from "@mui/material/Stack";
 const ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: <DashboardOutlinedIcon fontSize="small" /> },
   { key: "files", label: "Files", icon: <FolderOpenOutlinedIcon fontSize="small" /> },
-  { key: "upload", label: "Upload", icon: <CloudUploadOutlinedIcon fontSize="small" /> },
-  { key: "settings", label: "Settings", icon: <SettingsOutlinedIcon fontSize="small" /> }
+  { key: "upload", label: "Upload", icon: <CloudUploadOutlinedIcon fontSize="small" /> }
 ];
 
 export default function AppSidebar({ activeNav, onChangeNav }) {
