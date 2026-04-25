@@ -117,6 +117,24 @@ export default function App() {
     });
   }, [dateFilter, files, typeFilter]);
 
+  const dashboardStats = useMemo(() => {
+    return files.reduce(
+      (stats, file) => {
+        stats.total += 1;
+        stats.storage += file.size || 0;
+        stats.byType[file.type] = (stats.byType[file.type] || 0) + 1;
+        return stats;
+      },
+      { total: 0, storage: 0, byType: {} }
+    );
+  }, [files]);
+
+  const recentFiles = useMemo(() => {
+    return [...files]
+      .sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime())
+      .slice(0, 4);
+  }, [files]);
+
   async function handleLogin(payload) {
     setAuthLoading(true);
     try {
@@ -178,34 +196,70 @@ export default function App() {
     setUploadProgress(0);
 
     try {
+      let uploadedCount = 0;
+      let duplicateCount = 0;
+      const retryQueue = [];
+      const removeFromQueueIds = new Set();
+
       for (let i = 0; i < pendingFiles.length; i += 1) {
         const item = pendingFiles[i];
-        const fileType = classifyFileType(item.file.name);
-        const content = await extractTextFromFile(item.file);
 
-        await addFileMetadata(token, {
-          filename: item.file.name,
-          fileType,
-          size: item.file.size,
-          content,
-          relativePath: item.file.webkitRelativePath || item.file.name
-        });
+        try {
+          const fileType = classifyFileType(item.file.name);
+          const content = await extractTextFromFile(item.file);
+
+          await addFileMetadata(token, {
+            filename: item.file.name,
+            fileType,
+            size: item.file.size,
+            content,
+            relativePath: item.file.webkitRelativePath || item.file.name
+          });
+
+          uploadedCount += 1;
+          removeFromQueueIds.add(item.id);
+        } catch (error) {
+          const message = String(error?.message || "Upload failed");
+          const isDuplicate = message.toLowerCase().includes("duplicate file rejected");
+
+          if (isDuplicate) {
+            duplicateCount += 1;
+            removeFromQueueIds.add(item.id);
+          } else {
+            retryQueue.push(item);
+          }
+        }
 
         const progress = Math.round(((i + 1) / pendingFiles.length) * 100);
         setUploadProgress(progress);
       }
 
       pendingFiles.forEach((item) => {
-        if (item.previewUrl) {
+        if (removeFromQueueIds.has(item.id) && item.previewUrl) {
           URL.revokeObjectURL(item.previewUrl);
         }
       });
 
-      setPendingFiles([]);
-      setSuccessMessage("Files uploaded successfully");
-      await loadFiles(token, searchQuery);
-    } catch (error) {
-      setErrorMessage(error.message || "Upload failed");
+      setPendingFiles(retryQueue);
+
+      if (uploadedCount > 0) {
+        await loadFiles(token, searchQuery);
+      }
+
+      if (uploadedCount > 0 || duplicateCount > 0) {
+        const summaryParts = [];
+        if (uploadedCount > 0) {
+          summaryParts.push(`${uploadedCount} uploaded`);
+        }
+        if (duplicateCount > 0) {
+          summaryParts.push(`${duplicateCount} duplicate rejected`);
+        }
+        setSuccessMessage(summaryParts.join(". "));
+      }
+
+      if (retryQueue.length > 0) {
+        setErrorMessage(`${retryQueue.length} file(s) failed and remain in queue.`);
+      }
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
@@ -283,7 +337,59 @@ export default function App() {
             </Grid>
             <Grid item xs={12} md={9.5} lg={10}>
               <Stack spacing={2}>
-                {(activeNav === "dashboard" || activeNav === "files") && (
+                {activeNav === "dashboard" && (
+                  <>
+                    {filesLoading ? (
+                      <LoadingState title="Loading dashboard..." subtitle="Fetching latest file insights" />
+                    ) : (
+                      <Stack spacing={2}>
+                        <Typography variant="h6">Overview</Typography>
+                        <Grid container spacing={1.5}>
+                          <Grid item xs={12} sm={6} lg={3}>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                              <Typography variant="body2" color="text.secondary">Total Files</Typography>
+                              <Typography variant="h5">{dashboardStats.total}</Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6} lg={3}>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                              <Typography variant="body2" color="text.secondary">Storage Used</Typography>
+                              <Typography variant="h5">{Math.max(1, Math.round(dashboardStats.storage / 1024))} KB</Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6} lg={3}>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                              <Typography variant="body2" color="text.secondary">PDF Files</Typography>
+                              <Typography variant="h5">{dashboardStats.byType.pdf || 0}</Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6} lg={3}>
+                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+                              <Typography variant="body2" color="text.secondary">Code Files</Typography>
+                              <Typography variant="h5">{dashboardStats.byType.code || 0}</Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+
+                        <Typography variant="h6" sx={{ mt: 1 }}>Recent Files</Typography>
+                        {recentFiles.length === 0 ? (
+                          <EmptyState
+                            title="No recent files"
+                            description="Upload files to populate your dashboard overview."
+                          />
+                        ) : (
+                          <FileGrid
+                            files={recentFiles}
+                            searchQuery=""
+                            onRequestDelete={setFileToDelete}
+                          />
+                        )}
+                      </Stack>
+                    )}
+                  </>
+                )}
+
+                {activeNav === "files" && (
                   <>
                     <SearchFilterBar
                       nameQuery={searchQuery}
