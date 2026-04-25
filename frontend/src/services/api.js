@@ -86,3 +86,11 @@ export async function deleteFileMetadata(token, id) {
   });
   return parseResponse(response);
 }
+
+export async function deleteAllFileMetadata(token) {
+  const response = await fetch(`${API_BASE_URL}/api/files/all`, {
+    method: "DELETE",
+    headers: authHeaders(token)
+  });
+  return parseResponse(response);
+}

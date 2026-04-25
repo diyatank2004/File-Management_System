@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import mammoth from "mammoth";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
-import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import workerSrc from "pdfjs-dist/build/pdf.worker.min.js?url";
 import { getFileExtension } from "./indexing";
 
 GlobalWorkerOptions.workerSrc = workerSrc;

@@ -12,7 +12,11 @@ import HighlightedText from "../common/HighlightedText";
 import FileTypeIcon from "./FileTypeIcon";
 import { formatBytes } from "../../utils/fileHelpers";
 
-export default function FileGrid({ files, searchQuery, onRequestDelete }) {
+export default function FileGrid({
+  files,
+  searchQuery,
+  onRequestDelete
+}) {
   return (
     <Box
       sx={{
@@ -51,7 +55,7 @@ export default function FileGrid({ files, searchQuery, onRequestDelete }) {
                 {formatBytes(file.size)}
               </Typography>
             </Stack>
-            <Stack direction="row" justifyContent="flex-end" mt={1.2}>
+            <Stack direction="row" justifyContent="flex-end" mt={0.6}>
               <IconButton size="small" color="error" onClick={() => onRequestDelete(file)}>
                 <DeleteOutlineRoundedIcon fontSize="small" />
               </IconButton>

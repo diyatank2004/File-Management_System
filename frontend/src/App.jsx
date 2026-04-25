@@ -1,18 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
-import Chip from "@mui/material/Chip";
+import Button from "@mui/material/Button";
+import Container from "@mui/material/Container";
 import CssBaseline from "@mui/material/CssBaseline";
-import Divider from "@mui/material/Divider";
 import Grid from "@mui/material/Grid";
-import Paper from "@mui/material/Paper";
+import Snackbar from "@mui/material/Snackbar";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { ThemeProvider } from "@mui/material/styles";
-import { AnimatePresence, motion } from "framer-motion";
-import { Toaster, toast } from "react-hot-toast";
 import AuthPanel from "./components/auth/AuthPanel";
-import AppButton from "./components/common/AppButton";
-import AppCard from "./components/common/AppCard";
 import ConfirmDialog from "./components/common/ConfirmDialog";
 import EmptyState from "./components/common/EmptyState";
 import LoadingState from "./components/common/LoadingState";
@@ -22,13 +19,10 @@ import SearchFilterBar from "./components/files/SearchFilterBar";
 import AppNavbar from "./components/layout/AppNavbar";
 import AppSidebar from "./components/layout/AppSidebar";
 import UploadPanel from "./components/upload/UploadPanel";
-import { buildAppTheme } from "./theme";
-import { classifyFileType, matchesDateFilter } from "./utils/fileHelpers";
-import { extractTextFromFile } from "./utils/fileParsers";
-import { MAX_FILE_SIZE } from "./utils/indexing";
 import {
   addFileMetadata,
   clearSession,
+  deleteAllFileMetadata,
   deleteFileMetadata,
   getFiles,
   getStoredToken,
@@ -37,474 +31,360 @@ import {
   signup,
   storeSession
 } from "./services/api";
+import { classifyFileType, matchesDateFilter } from "./utils/fileHelpers";
+import { extractTextFromFile } from "./utils/fileParsers";
+import { buildAppTheme } from "./theme";
 
-const PAGE_TRANSITION = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -10 },
-  transition: { duration: 0.25 }
-};
-
-function toUiFile(file) {
+function normalizeApiFile(file) {
   return {
     id: file._id,
     name: file.filename,
     path: file.relativePath || file.filename,
+    type: file.fileType || classifyFileType(file.filename),
     size: file.size,
     lastModified: file.createdAt,
-    type: file.fileType,
     snippet: file.snippet || ""
   };
 }
 
 export default function App() {
   const [mode, setMode] = useState("light");
-  const [activeNav, setActiveNav] = useState("dashboard");
-  const [viewMode, setViewMode] = useState("grid");
+  const [token, setToken] = useState(() => getStoredToken() || "");
+  const [user, setUser] = useState(() => getStoredUser());
 
-  const [token, setToken] = useState(null);
-  const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const [files, setFiles] = useState([]);
-  const [filesLoading, setFilesLoading] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
-  const [nameQuery, setNameQuery] = useState("");
+  const [activeNav, setActiveNav] = useState("dashboard");
+  const [viewMode, setViewMode] = useState("grid");
+  const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
 
-  const [pendingUploadFiles, setPendingUploadFiles] = useState([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [searchMeta, setSearchMeta] = useState({ query: "", matched: 0 });
+  const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [fileToDelete, setFileToDelete] = useState(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
-  const theme = useMemo(() => buildAppTheme(mode), [mode]);
+  const appTheme = useMemo(() => buildAppTheme(mode), [mode]);
 
-  const filteredFiles = useMemo(() => {
-    return files.filter((file) => {
-      const typeMatch = typeFilter === "all" || file.type === typeFilter;
-      const dateMatch = matchesDateFilter(file.lastModified, dateFilter);
-      return typeMatch && dateMatch;
-    });
-  }, [dateFilter, files, typeFilter]);
-
-  const stats = useMemo(() => {
-    const total = files.length;
-    const images = files.filter((item) => item.type === "image").length;
-    const docs = files.filter((item) => item.type === "document" || item.type === "pdf").length;
-    const code = files.filter((item) => item.type === "code").length;
-
-    return { total, images, docs, code };
-  }, [files]);
-
-  const handleLogout = (withMessage = true) => {
-    clearSession();
-    setToken(null);
-    setUser(null);
-    setFiles([]);
-    setPendingUploadFiles([]);
-    setIsUploading(false);
-    setUploadProgress(0);
-    setActiveNav("dashboard");
-
-    if (withMessage) {
-      toast.success("Logged out successfully");
-    }
-  };
-
-  const loadFiles = async (authToken, query = "") => {
-    if (!authToken) {
+  async function loadFiles(activeToken, query) {
+    if (!activeToken) {
       return;
     }
 
     setFilesLoading(true);
     try {
-      const data = await getFiles(authToken, query);
-      setFiles((data.files || []).map(toUiFile));
-      setSearchMeta(data.search || { query, matched: (data.files || []).length });
+      const data = await getFiles(activeToken, query || "");
+      const normalized = (data.files || []).map(normalizeApiFile);
+      setFiles(normalized);
     } catch (error) {
-      if (error.message.toLowerCase().includes("token")) {
-        toast.error("Session expired. Please login again.");
-        handleLogout(false);
-      } else {
-        toast.error(error.message);
-      }
+      setErrorMessage(error.message || "Failed to fetch files");
     } finally {
       setFilesLoading(false);
     }
-  };
-
-  useEffect(() => {
-    const storedToken = getStoredToken();
-    const storedUser = getStoredUser();
-
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(storedUser);
-      loadFiles(storedToken);
-    }
-  }, []);
+  }
 
   useEffect(() => {
     if (!token) {
-      return undefined;
-    }
-
-    if (!nameQuery.trim()) {
-      loadFiles(token);
-      return undefined;
-    }
-
-    if (nameQuery.trim().length < 3) {
-      setSearchMeta({ query: nameQuery.trim(), matched: 0 });
-      return undefined;
-    }
-
-    const timer = setTimeout(() => {
-      loadFiles(token, nameQuery);
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [nameQuery, token]);
-
-  const handleLogin = async (payload) => {
-    setAuthLoading(true);
-    try {
-      const response = await login(payload);
-      storeSession(response.token, response.user);
-      setToken(response.token);
-      setUser(response.user);
-      setActiveNav("dashboard");
-      toast.success("Login successful");
-      await loadFiles(response.token);
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleSignup = async (payload) => {
-    setAuthLoading(true);
-    try {
-      const response = await signup(payload);
-      storeSession(response.token, response.user);
-      setToken(response.token);
-      setUser(response.user);
-      setActiveNav("dashboard");
-      toast.success("Account created and logged in");
-      await loadFiles(response.token);
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleFilesSelected = (selectedFiles) => {
-    const supportedFiles = selectedFiles.filter((file) => file.size > 0 && file.size <= MAX_FILE_SIZE);
-
-    if (supportedFiles.length !== selectedFiles.length) {
-      toast.error("Some files were skipped. File size must be between 1 byte and 50 MB.");
-    }
-
-    if (!supportedFiles.length) {
       return;
     }
 
-    const newItems = supportedFiles.map((file) => {
-      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
-      return {
-        id:
-          (window.crypto && window.crypto.randomUUID && window.crypto.randomUUID()) ||
-          `${Date.now()}-${Math.random()}`,
-        file,
-        previewUrl
-      };
+    void loadFiles(token, searchQuery);
+  }, [token, searchQuery]);
+
+  useEffect(() => {
+    return () => {
+      pendingFiles.forEach((item) => {
+        if (item.previewUrl) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      });
+    };
+  }, [pendingFiles]);
+
+  const visibleFiles = useMemo(() => {
+    return files.filter((file) => {
+      const matchesType = typeFilter === "all" ? true : file.type === typeFilter;
+      const matchesDate = matchesDateFilter(file.lastModified, dateFilter);
+      return matchesType && matchesDate;
     });
+  }, [dateFilter, files, typeFilter]);
 
-    setPendingUploadFiles((prev) => [...prev, ...newItems]);
-    toast.success(`${newItems.length} file(s) ready for upload`);
-  };
+  async function handleLogin(payload) {
+    setAuthLoading(true);
+    try {
+      const data = await login(payload);
+      setToken(data.token);
+      setUser(data.user);
+      storeSession(data.token, data.user);
+      setSuccessMessage("Login successful");
+    } catch (error) {
+      setErrorMessage(error.message || "Login failed");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
 
-  const handleStartUpload = async () => {
-    if (!pendingUploadFiles.length || isUploading || !token) {
+  async function handleSignup(payload) {
+    setAuthLoading(true);
+    try {
+      const data = await signup(payload);
+      setToken(data.token);
+      setUser(data.user);
+      storeSession(data.token, data.user);
+      setSuccessMessage("Signup successful");
+    } catch (error) {
+      setErrorMessage(error.message || "Signup failed");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  function handleLogout() {
+    clearSession();
+    setToken("");
+    setUser(null);
+    setFiles([]);
+    setPendingFiles([]);
+    setSearchQuery("");
+    setTypeFilter("all");
+    setDateFilter("all");
+  }
+
+  function handleFilesSelected(newFiles) {
+    const mapped = newFiles.map((file, index) => ({
+      id: `${Date.now()}-${index}-${file.name}`,
+      file,
+      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : ""
+    }));
+
+    setPendingFiles((prev) => [...prev, ...mapped]);
+    setSuccessMessage(`${newFiles.length} file(s) added to queue`);
+  }
+
+  async function handleStartUpload() {
+    if (!token || pendingFiles.length === 0) {
       return;
     }
 
     setIsUploading(true);
     setUploadProgress(0);
 
-    await new Promise((resolve) => {
-      let progress = 0;
-      const timer = setInterval(() => {
-        progress += 10;
-        setUploadProgress(progress);
-
-        if (progress >= 100) {
-          clearInterval(timer);
-          resolve();
-        }
-      }, 120);
-    });
-
     try {
-      for (const upload of pendingUploadFiles) {
-        const extractedContent = await extractTextFromFile(upload.file);
+      for (let i = 0; i < pendingFiles.length; i += 1) {
+        const item = pendingFiles[i];
+        const fileType = classifyFileType(item.file.name);
+        const content = await extractTextFromFile(item.file);
+
         await addFileMetadata(token, {
-          filename: upload.file.name,
-          fileType: classifyFileType(upload.file.name),
-          size: upload.file.size,
-          content: typeof extractedContent === "string" ? extractedContent.slice(0, 200000) : "",
-          relativePath: upload.file.webkitRelativePath || upload.file.name
+          filename: item.file.name,
+          fileType,
+          size: item.file.size,
+          content,
+          relativePath: item.file.webkitRelativePath || item.file.name
         });
+
+        const progress = Math.round(((i + 1) / pendingFiles.length) * 100);
+        setUploadProgress(progress);
       }
 
-      pendingUploadFiles.forEach((item) => {
+      pendingFiles.forEach((item) => {
         if (item.previewUrl) {
           URL.revokeObjectURL(item.previewUrl);
         }
       });
 
-      setPendingUploadFiles([]);
-      setUploadProgress(100);
-      setIsUploading(false);
-      setActiveNav("files");
-      toast.success("Files uploaded and indexed for content search");
-      await loadFiles(token, nameQuery);
+      setPendingFiles([]);
+      setSuccessMessage("Files uploaded successfully");
+      await loadFiles(token, searchQuery);
     } catch (error) {
+      setErrorMessage(error.message || "Upload failed");
+    } finally {
       setIsUploading(false);
-      toast.error(error.message);
+      setUploadProgress(0);
     }
-  };
+  }
 
-  const requestDeleteFile = (file) => {
-    setDeleteTarget(file);
-  };
-
-  const confirmDeleteFile = async () => {
-    if (!deleteTarget || !token) {
+  async function handleDeleteFile() {
+    if (!fileToDelete || !token) {
       return;
     }
 
     try {
-      await deleteFileMetadata(token, deleteTarget.id);
-      setFiles((prev) => prev.filter((item) => item.id !== deleteTarget.id));
-      toast.success(`Deleted ${deleteTarget.name}`);
+      await deleteFileMetadata(token, fileToDelete.id);
+      setFiles((prev) => prev.filter((item) => item.id !== fileToDelete.id));
+      setSuccessMessage("File deleted");
     } catch (error) {
-      toast.error(error.message);
+      setErrorMessage(error.message || "Delete failed");
     } finally {
-      setDeleteTarget(null);
+      setFileToDelete(null);
     }
-  };
+  }
 
-  if (!token || !user) {
+  async function handleDeleteAll() {
+    if (!token) {
+      return;
+    }
+
+    try {
+      await deleteAllFileMetadata(token);
+      setFiles([]);
+      setSuccessMessage("All file metadata deleted");
+    } catch (error) {
+      setErrorMessage(error.message || "Delete all failed");
+    } finally {
+      setConfirmDeleteAll(false);
+    }
+  }
+
+  if (!token) {
     return (
-      <ThemeProvider theme={theme}>
+      <ThemeProvider theme={appTheme}>
         <CssBaseline />
-        <Toaster position="top-right" />
         <AuthPanel onLogin={handleLogin} onSignup={handleSignup} loading={authLoading} />
+        <Snackbar
+          open={Boolean(errorMessage)}
+          autoHideDuration={3500}
+          onClose={() => setErrorMessage("")}
+          anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        >
+          <Alert severity="error" onClose={() => setErrorMessage("")}>
+            {errorMessage}
+          </Alert>
+        </Snackbar>
       </ThemeProvider>
     );
   }
 
   return (
-    <ThemeProvider theme={theme}>
+    <ThemeProvider theme={appTheme}>
       <CssBaseline />
-      <Toaster position="top-right" />
-      <Box sx={{ p: { xs: 1.5, md: 3 } }}>
-        <Paper
-          elevation={0}
-          sx={{ p: { xs: 1.5, md: 2.5 }, border: "1px solid", borderColor: "divider" }}
-        >
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+        <Stack spacing={2.5}>
           <AppNavbar
             mode={mode}
             onToggleMode={() => setMode((prev) => (prev === "light" ? "dark" : "light"))}
-            quickSearch={nameQuery}
-            onQuickSearchChange={(value) => {
-              setNameQuery(value);
-              setActiveNav("files");
-            }}
-            userName={user.name}
-            onLogout={() => handleLogout(true)}
+            quickSearch={searchQuery}
+            onQuickSearchChange={setSearchQuery}
+            userName={user?.name || "User"}
+            onLogout={handleLogout}
           />
-          <Divider sx={{ my: 2 }} />
 
           <Grid container spacing={2}>
-            <Grid item xs={12} md={3} lg={2.5}>
+            <Grid item xs={12} md={2.5} lg={2}>
               <AppSidebar activeNav={activeNav} onChangeNav={setActiveNav} />
             </Grid>
+            <Grid item xs={12} md={9.5} lg={10}>
+              <Stack spacing={2}>
+                {(activeNav === "dashboard" || activeNav === "files") && (
+                  <>
+                    <SearchFilterBar
+                      nameQuery={searchQuery}
+                      onNameQueryChange={setSearchQuery}
+                      typeFilter={typeFilter}
+                      onTypeFilterChange={setTypeFilter}
+                      dateFilter={dateFilter}
+                      onDateFilterChange={setDateFilter}
+                      viewMode={viewMode}
+                      onViewModeChange={setViewMode}
+                    />
 
-            <Grid item xs={12} md={9} lg={9.5}>
-              <AnimatePresence mode="wait">
-                <motion.div key={activeNav} {...PAGE_TRANSITION}>
-                  {activeNav === "dashboard" && (
-                    <Stack spacing={2}>
-                      <Typography variant="h5">Dashboard</Typography>
-                      <Grid container spacing={1.5}>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <AppCard sx={{ border: "1px solid", borderColor: "divider" }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Total Files
-                            </Typography>
-                            <Typography variant="h5">{stats.total}</Typography>
-                          </AppCard>
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <AppCard sx={{ border: "1px solid", borderColor: "divider" }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Documents
-                            </Typography>
-                            <Typography variant="h5">{stats.docs}</Typography>
-                          </AppCard>
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <AppCard sx={{ border: "1px solid", borderColor: "divider" }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Images
-                            </Typography>
-                            <Typography variant="h5">{stats.images}</Typography>
-                          </AppCard>
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <AppCard sx={{ border: "1px solid", borderColor: "divider" }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Code Files
-                            </Typography>
-                            <Typography variant="h5">{stats.code}</Typography>
-                          </AppCard>
-                        </Grid>
-                      </Grid>
-
-                      <AppCard sx={{ border: "1px solid", borderColor: "divider" }}>
-                        <Typography variant="subtitle1" fontWeight={700}>
-                          Account Overview
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                          Logged in as: {user.name} ({user.email})
-                        </Typography>
-                        <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: "wrap" }}>
-                          <Chip label={mode === "light" ? "Light Mode" : "Dark Mode"} variant="outlined" />
-                          <Chip label={`Your files: ${files.length}`} color="primary" variant="outlined" />
-                        </Stack>
-                      </AppCard>
-                    </Stack>
-                  )}
-
-                  {activeNav === "files" && (
-                    <Stack spacing={2}>
-                      <Stack
-                        direction={{ xs: "column", sm: "row" }}
-                        spacing={1}
-                        justifyContent="space-between"
-                      >
-                        <Typography variant="h5">Files</Typography>
-                        <AppButton onClick={() => loadFiles(token)} disabled={filesLoading}>
-                          {filesLoading ? "Refreshing..." : "Refresh Files"}
-                        </AppButton>
-                      </Stack>
-
-                      <SearchFilterBar
-                        nameQuery={nameQuery}
-                        onNameQueryChange={setNameQuery}
-                        typeFilter={typeFilter}
-                        onTypeFilterChange={setTypeFilter}
-                        dateFilter={dateFilter}
-                        onDateFilterChange={setDateFilter}
-                        viewMode={viewMode}
-                        onViewModeChange={setViewMode}
+                    {filesLoading ? (
+                      <LoadingState />
+                    ) : visibleFiles.length === 0 ? (
+                      <EmptyState
+                        title="No files found"
+                        description="Upload files or change filters to view matching records."
                       />
-
-                      {nameQuery.trim() && !filesLoading && (
-                        <Typography variant="body2" color="text.secondary">
-                          Found {searchMeta.matched} matching file(s) for "{nameQuery.trim()}".
-                        </Typography>
-                      )}
-
-                      {filesLoading && (
-                        <LoadingState
-                          title="Loading your files"
-                          subtitle="Fetching user-specific metadata from backend"
-                        />
-                      )}
-
-                      {!filesLoading && !filteredFiles.length && (
-                        <EmptyState
-                          title="No files found"
-                          description="Try a different search term or upload files from the Upload section."
-                        />
-                      )}
-
-                      {!filesLoading &&
-                        filteredFiles.length > 0 &&
-                        (viewMode === "grid" ? (
-                          <FileGrid
-                            files={filteredFiles}
-                            searchQuery={nameQuery}
-                            onRequestDelete={requestDeleteFile}
-                          />
-                        ) : (
-                          <FileList
-                            files={filteredFiles}
-                            searchQuery={nameQuery}
-                            onRequestDelete={requestDeleteFile}
-                          />
-                        ))}
-                    </Stack>
-                  )}
-
-                  {activeNav === "upload" && (
-                    <Stack spacing={2}>
-                      <Typography variant="h5">Upload</Typography>
-                      <UploadPanel
-                        pendingFiles={pendingUploadFiles}
-                        uploadProgress={uploadProgress}
-                        isUploading={isUploading}
-                        onFilesSelected={handleFilesSelected}
-                        onStartUpload={handleStartUpload}
+                    ) : viewMode === "grid" ? (
+                      <FileGrid
+                        files={visibleFiles}
+                        searchQuery={searchQuery}
+                        onRequestDelete={setFileToDelete}
                       />
-                    </Stack>
-                  )}
+                    ) : (
+                      <FileList
+                        files={visibleFiles}
+                        searchQuery={searchQuery}
+                        onRequestDelete={setFileToDelete}
+                      />
+                    )}
+                  </>
+                )}
 
-                  {activeNav === "settings" && (
-                    <Stack spacing={2}>
-                      <Typography variant="h5">Settings</Typography>
-                      <AppCard sx={{ border: "1px solid", borderColor: "divider" }}>
-                        <Typography variant="subtitle1" fontWeight={700}>
-                          Security
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                          Your session uses a JWT token stored in localStorage. Use logout to clear
-                          it any time.
-                        </Typography>
-                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 2 }}>
-                          <AppButton onClick={() => handleLogout(true)} color="error">
-                            Logout
-                          </AppButton>
-                        </Stack>
-                      </AppCard>
-                    </Stack>
-                  )}
-                </motion.div>
-              </AnimatePresence>
+                {activeNav === "upload" && (
+                  <UploadPanel
+                    pendingFiles={pendingFiles}
+                    uploadProgress={uploadProgress}
+                    isUploading={isUploading}
+                    onFilesSelected={handleFilesSelected}
+                    onStartUpload={handleStartUpload}
+                  />
+                )}
+
+                {activeNav === "settings" && (
+                  <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2 }}>
+                    <Typography variant="h6" sx={{ mb: 1 }}>
+                      Settings
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      Delete all indexed file metadata from your account.
+                    </Typography>
+                    <Button color="error" variant="contained" onClick={() => setConfirmDeleteAll(true)}>
+                      Delete All Files
+                    </Button>
+                  </Box>
+                )}
+              </Stack>
             </Grid>
           </Grid>
-        </Paper>
-      </Box>
+        </Stack>
+      </Container>
 
       <ConfirmDialog
-        open={Boolean(deleteTarget)}
+        open={Boolean(fileToDelete)}
         title="Delete file"
-        description={
-          deleteTarget
-            ? `Are you sure you want to remove ${deleteTarget.name}? This action cannot be undone.`
-            : ""
-        }
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={confirmDeleteFile}
+        description={fileToDelete ? `Delete ${fileToDelete.name}?` : "Delete this file?"}
+        onCancel={() => setFileToDelete(null)}
+        onConfirm={handleDeleteFile}
       />
+
+      <ConfirmDialog
+        open={confirmDeleteAll}
+        title="Delete all files"
+        description="This will remove all indexed file metadata for your account."
+        onCancel={() => setConfirmDeleteAll(false)}
+        onConfirm={handleDeleteAll}
+      />
+
+      <Snackbar
+        open={Boolean(errorMessage)}
+        autoHideDuration={3500}
+        onClose={() => setErrorMessage("")}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      >
+        <Alert severity="error" onClose={() => setErrorMessage("")}>
+          {errorMessage}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={Boolean(successMessage)}
+        autoHideDuration={2500}
+        onClose={() => setSuccessMessage("")}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="success" onClose={() => setSuccessMessage("")}>
+          {successMessage}
+        </Alert>
+      </Snackbar>
     </ThemeProvider>
   );
 }

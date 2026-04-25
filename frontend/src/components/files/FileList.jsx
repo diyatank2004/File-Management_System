@@ -15,7 +15,11 @@ import HighlightedText from "../common/HighlightedText";
 import FileTypeIcon from "./FileTypeIcon";
 import { formatBytes } from "../../utils/fileHelpers";
 
-export default function FileList({ files, searchQuery, onRequestDelete }) {
+export default function FileList({
+  files,
+  searchQuery,
+  onRequestDelete
+}) {
   return (
     <TableContainer component={Paper} elevation={0} sx={{ border: "1px solid", borderColor: "divider" }}>
       <Table size="small">
@@ -53,9 +57,11 @@ export default function FileList({ files, searchQuery, onRequestDelete }) {
               <TableCell>{new Date(file.lastModified).toLocaleDateString()}</TableCell>
               <TableCell>{formatBytes(file.size)}</TableCell>
               <TableCell align="right">
-                <IconButton size="small" color="error" onClick={() => onRequestDelete(file)}>
-                  <DeleteOutlineRoundedIcon fontSize="small" />
-                </IconButton>
+                <Stack direction="row" spacing={0.8} justifyContent="flex-end" flexWrap="wrap">
+                  <IconButton size="small" color="error" onClick={() => onRequestDelete(file)}>
+                    <DeleteOutlineRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
               </TableCell>
             </TableRow>
           ))}
