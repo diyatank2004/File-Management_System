@@ -25,6 +25,14 @@ const fileSchema = new mongoose.Schema(
       type: String,
       default: ""
     },
+    pdfDataUrl: {
+      type: String,
+      default: ""
+    },
+    hasPdfBinary: {
+      type: Boolean,
+      default: false
+    },
     uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

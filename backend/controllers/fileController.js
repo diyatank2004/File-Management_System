@@ -21,6 +21,22 @@ function normalizePath(path) {
   return path.trim().slice(0, 500);
 }
 
+function normalizePdfDataUrl(pdfDataUrl) {
+  if (typeof pdfDataUrl !== "string") {
+    return "";
+  }
+
+  const trimmed = pdfDataUrl.trim();
+  const isPdfDataUrl = /^data:application\/pdf;base64,/i.test(trimmed);
+
+  if (!isPdfDataUrl) {
+    return "";
+  }
+
+  // Keep payload bounded under MongoDB document limits.
+  return trimmed.slice(0, 12000000);
+}
+
 function createSnippet(content, query) {
   if (!query || typeof content !== "string" || !content.length) {
     return "";
@@ -59,8 +75,8 @@ export async function getFiles(req, res, next) {
     }
 
     const projection = query
-      ? "filename fileType size createdAt content relativePath"
-      : "filename fileType size createdAt relativePath";
+      ? "filename fileType size createdAt content relativePath hasPdfBinary"
+      : "filename fileType size createdAt relativePath hasPdfBinary";
 
     const files = await File.find(filter, projection).sort({ createdAt: -1 }).lean();
     const normalizedFiles = files.map((file) => {
@@ -88,18 +104,39 @@ export async function getFiles(req, res, next) {
 
 export async function addFileMetadata(req, res, next) {
   try {
-    const { filename, fileType, size, content, relativePath } = req.body;
+    const { filename, fileType, size, content, relativePath, pdfDataUrl } = req.body;
 
     if (!filename || !fileType || size === undefined) {
       return res.status(400).json({ message: "filename, fileType and size are required" });
     }
 
+    const normalizedFilename = String(filename).trim();
+    const normalizedContent = normalizeContent(content);
+    const normalizedRelativePath = normalizePath(relativePath);
+    const normalizedPdfDataUrl = fileType === "pdf" ? normalizePdfDataUrl(pdfDataUrl) : "";
+
+    const duplicateFile = await File.findOne({
+      uploadedBy: req.user.id,
+      filename: normalizedFilename,
+      content: normalizedContent
+    })
+      .select("_id")
+      .lean();
+
+    if (duplicateFile) {
+      return res.status(409).json({
+        message: "Duplicate file rejected: same file content already exists for this filename"
+      });
+    }
+
     const file = await File.create({
-      filename,
+      filename: normalizedFilename,
       fileType,
       size,
-      content: normalizeContent(content),
-      relativePath: normalizePath(relativePath),
+      content: normalizedContent,
+      relativePath: normalizedRelativePath,
+      pdfDataUrl: normalizedPdfDataUrl,
+      hasPdfBinary: Boolean(normalizedPdfDataUrl),
       uploadedBy: req.user.id
     });
 
@@ -107,6 +144,21 @@ export async function addFileMetadata(req, res, next) {
       message: "File metadata saved",
       file
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getFileById(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const file = await File.findOne({ _id: id, uploadedBy: req.user.id }).lean();
+    if (!file) {
+      return res.status(404).json({ message: "File not found" });
+    }
+
+    return res.status(200).json({ file });
   } catch (error) {
     next(error);
   }
@@ -123,6 +175,19 @@ export async function deleteFileMetadata(req, res, next) {
 
     await file.deleteOne();
     return res.status(200).json({ message: "File metadata deleted" });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteAllFileMetadata(req, res, next) {
+  try {
+    const result = await File.deleteMany({ uploadedBy: req.user.id });
+
+    return res.status(200).json({
+      message: "All file metadata deleted",
+      deletedCount: result.deletedCount || 0
+    });
   } catch (error) {
     next(error);
   }
