@@ -1,706 +1,240 @@
-import React, { useEffect, useMemo, useState } from "react";
-import Alert from "@mui/material/Alert";
-import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
-import Container from "@mui/material/Container";
-import CssBaseline from "@mui/material/CssBaseline";
-import Grid from "@mui/material/Grid";
-import Snackbar from "@mui/material/Snackbar";
-import Stack from "@mui/material/Stack";
-import Typography from "@mui/material/Typography";
-import { ThemeProvider } from "@mui/material/styles";
-import AuthPanel from "./components/auth/AuthPanel";
-import ConfirmDialog from "./components/common/ConfirmDialog";
-import EmptyState from "./components/common/EmptyState";
-import LoadingState from "./components/common/LoadingState";
-import FileGrid from "./components/files/FileGrid";
-import FileList from "./components/files/FileList";
-import SearchFilterBar from "./components/files/SearchFilterBar";
-import AppNavbar from "./components/layout/AppNavbar";
-import AppSidebar from "./components/layout/AppSidebar";
-import UploadPanel from "./components/upload/UploadPanel";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { ThemeProvider, createTheme } from "@mui/material/styles";
 import {
-  addFileMetadata,
-  clearSession,
-  deleteAllFileMetadata,
-  deleteFileMetadata,
-  getFiles,
-  getStoredToken,
-  getStoredUser,
-  login,
-  signup,
-  storeSession
-} from "./services/api";
-import { classifyFileType, formatBytes, matchesDateFilter } from "./utils/fileHelpers";
-import { extractTextFromFile } from "./utils/fileParsers";
-import { buildAppTheme } from "./theme";
+  Box, CssBaseline, Grid, Stack, Typography, Snackbar, Alert,
+  Avatar, LinearProgress, IconButton, AppBar,
+  Toolbar, Drawer, List, ListItemButton, ListItemIcon, ListItemText
+} from "@mui/material";
+import {
+  Menu, Dashboard, CloudUpload, Logout
+} from "@mui/icons-material";
 
-function normalizeApiFile(file) {
-  return {
-    id: file._id,
-    name: file.filename,
-    path: file.relativePath || file.filename,
-    type: file.fileType || classifyFileType(file.filename),
-    size: file.size,
-    lastModified: file.createdAt,
-    snippet: file.snippet || ""
-  };
-}
+// Component Imports
+import AuthPanel from "./components/auth/AuthPanel";
+import CategoryCards from "./components/dashboard/CategoryCards";
+import RecentFilesTable from "./components/files/RecentFilesTable";
+import StoragePanel from "./components/dashboard/StoragePanel";
+
+// API & Utils
+import {
+  getFiles, getStoredToken, getStoredUser, storeSession, clearSession,
+  login, signup
+} from "./services/api";
+
+const DRAWER_WIDTH = 280;
 
 export default function App() {
-  const [mode, setMode] = useState("light");
-  const [token, setToken] = useState(() => getStoredToken() || "");
-  const [user, setUser] = useState(() => getStoredUser());
-
-  const [authLoading, setAuthLoading] = useState(false);
-  const [filesLoading, setFilesLoading] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  // --- CONSOLIDATED STATE ---
+  const [authState, setAuthState] = useState({
+    token: getStoredToken(),
+    user: getStoredUser(),
+    isInitializing: true
+  });
 
   const [files, setFiles] = useState([]);
-  const [pendingFiles, setPendingFiles] = useState([]);
-  const [uploadProgress, setUploadProgress] = useState(0);
-
   const [activeNav, setActiveNav] = useState("dashboard");
-  const [viewMode, setViewMode] = useState("grid");
+  const [isDrawerOpen, setDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("all");
-
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [notifications, setNotifications] = useState([]);
 
-  const [fileToDelete, setFileToDelete] = useState(null);
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const dashboardTheme = useMemo(() => createTheme({
+    palette: {
+      primary: { main: "#3a97f9" },
+      background: { default: "#f8f9fa", paper: "#ffffff" },
+    },
+    shape: { borderRadius: 16 },
+    typography: { fontFamily: "'Inter', sans-serif" }
+  }), []);
 
-  const appTheme = useMemo(() => buildAppTheme(mode), [mode]);
-  const unreadNotificationCount = useMemo(
-    () => notifications.filter((item) => !item.read).length,
-    [notifications]
-  );
-
-  function addNotification(type, message) {
-    const timestamp = new Date().toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
-    });
-
-    setNotifications((prev) => [
-      {
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        type,
-        message,
-        timestamp,
-        read: false
-      },
-      ...prev
-    ].slice(0, 50));
-  }
-
-  function markNotificationsAsRead() {
-    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
-  }
-
-  function clearNotifications() {
-    setNotifications([]);
-  }
-
-  async function loadFiles(activeToken, query) {
-    if (!activeToken) {
-      return;
-    }
-
-    setFilesLoading(true);
-    try {
-      const data = await getFiles(activeToken, query || "");
-      const normalized = (data.files || []).map(normalizeApiFile);
-      setFiles(normalized);
-    } catch (error) {
-      setErrorMessage(error.message || "Failed to fetch files");
-    } finally {
-      setFilesLoading(false);
-    }
-  }
-
+  // --- 1. INITIALIZATION ---
   useEffect(() => {
-    if (!token) {
-      return;
-    }
+    const t = getStoredToken();
+    const u = getStoredUser();
+    setAuthState({ token: t, user: u, isInitializing: false });
+  }, []);
 
-    void loadFiles(token, searchQuery);
-  }, [token, searchQuery]);
+  // --- 2. AUTH HANDLERS ---
+  const handleAuthSuccess = useCallback((response) => {
+    const payload = response?.data || response;
+    const authToken = payload.token || payload.sfm_token;
+    const authUser = payload.user || payload.sfm_user;
 
-  useEffect(() => {
-    return () => {
-      pendingFiles.forEach((item) => {
-        if (item.previewUrl) {
-          URL.revokeObjectURL(item.previewUrl);
-        }
+    if (authToken && authUser) {
+      storeSession(authToken, authUser);
+      setAuthState({
+        token: authToken,
+        user: authUser,
+        isInitializing: false
       });
-    };
-  }, [pendingFiles]);
-
-  const visibleFiles = useMemo(() => {
-    return files.filter((file) => {
-      const matchesType = typeFilter === "all" ? true : file.type === typeFilter;
-      const matchesDate = matchesDateFilter(file.lastModified, dateFilter);
-      return matchesType && matchesDate;
-    });
-  }, [dateFilter, files, typeFilter]);
-
-  const dashboardStats = useMemo(() => {
-    return files.reduce(
-      (stats, file) => {
-        stats.total += 1;
-        stats.storage += file.size || 0;
-        stats.byType[file.type] = (stats.byType[file.type] || 0) + 1;
-        return stats;
-      },
-      { total: 0, storage: 0, byType: {} }
-    );
-  }, [files]);
-
-  const recentFiles = useMemo(() => {
-    return [...files]
-      .sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime())
-      .slice(0, 4);
-  }, [files]);
-
-  const topFileTypes = useMemo(() => {
-    return Object.entries(dashboardStats.byType)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([type, count]) => ({
-        type,
-        count,
-        percentage: dashboardStats.total > 0 ? Math.round((count / dashboardStats.total) * 100) : 0
-      }));
-  }, [dashboardStats]);
-
-  const weeklyUploadActivity = useMemo(() => {
-    const days = [];
-    const now = new Date();
-
-    for (let i = 6; i >= 0; i -= 1) {
-      const day = new Date(now);
-      day.setDate(now.getDate() - i);
-      day.setHours(0, 0, 0, 0);
-
-      days.push({
-        key: day.toISOString().slice(0, 10),
-        label: day.toLocaleDateString(undefined, { weekday: "short" }),
-        count: 0
-      });
+      setSuccessMessage("Identity Verified.");
+    } else {
+      setErrorMessage("Authentication failed: Invalid data received.");
     }
+  }, []);
 
-    files.forEach((file) => {
-      const date = new Date(file.lastModified);
-      date.setHours(0, 0, 0, 0);
-      const key = date.toISOString().slice(0, 10);
-      const match = days.find((item) => item.key === key);
-      if (match) {
-        match.count += 1;
-      }
-    });
-
-    const maxCount = Math.max(...days.map((d) => d.count), 1);
-    return {
-      days,
-      maxCount,
-      totalUploads: days.reduce((sum, day) => sum + day.count, 0)
-    };
-  }, [files]);
-
-  async function handleLogin(payload) {
-    setAuthLoading(true);
-    try {
-      const data = await login(payload);
-      setToken(data.token);
-      setUser(data.user);
-      storeSession(data.token, data.user);
-      setSuccessMessage("Login successful");
-    } catch (error) {
-      setErrorMessage(error.message || "Login failed");
-    } finally {
-      setAuthLoading(false);
-    }
-  }
-
-  async function handleSignup(payload) {
-    setAuthLoading(true);
-    try {
-      const data = await signup(payload);
-      setToken(data.token);
-      setUser(data.user);
-      storeSession(data.token, data.user);
-      setSuccessMessage("Signup successful");
-    } catch (error) {
-      setErrorMessage(error.message || "Signup failed");
-    } finally {
-      setAuthLoading(false);
-    }
-  }
-
-  function handleLogout() {
+  const handleLogout = useCallback(() => {
     clearSession();
-    setToken("");
-    setUser(null);
+    setAuthState({ token: null, user: null, isInitializing: false });
     setFiles([]);
-    setPendingFiles([]);
-    setNotifications([]);
-    setSearchQuery("");
-    setTypeFilter("all");
-    setDateFilter("all");
-  }
+  }, []);
 
-  function handleFilesSelected(newFiles) {
-    const mapped = newFiles.map((file, index) => ({
-      id: `${Date.now()}-${index}-${file.name}`,
-      file,
-      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : ""
-    }));
-
-    setPendingFiles((prev) => [...prev, ...mapped]);
-    setSuccessMessage(`${newFiles.length} file(s) added to queue`);
-  }
-
-  async function handleStartUpload() {
-    if (!token || pendingFiles.length === 0) {
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadProgress(0);
-
+  // --- 3. DATA FETCHING ---
+  const loadFiles = useCallback(async (activeToken) => {
+    if (!activeToken) return;
     try {
-      let uploadedCount = 0;
-      let duplicateCount = 0;
-      const retryQueue = [];
-      const removeFromQueueIds = new Set();
-
-      for (let i = 0; i < pendingFiles.length; i += 1) {
-        const item = pendingFiles[i];
-
-        try {
-          const fileType = classifyFileType(item.file.name);
-          const content = await extractTextFromFile(item.file);
-
-          await addFileMetadata(token, {
-            filename: item.file.name,
-            fileType,
-            size: item.file.size,
-            content,
-            relativePath: item.file.webkitRelativePath || item.file.name
-          });
-
-          uploadedCount += 1;
-          removeFromQueueIds.add(item.id);
-        } catch (error) {
-          const message = String(error?.message || "Upload failed");
-          const isDuplicate = message.toLowerCase().includes("duplicate file rejected");
-
-          if (isDuplicate) {
-            duplicateCount += 1;
-            removeFromQueueIds.add(item.id);
-          } else {
-            retryQueue.push(item);
-          }
-        }
-
-        const progress = Math.round(((i + 1) / pendingFiles.length) * 100);
-        setUploadProgress(progress);
-      }
-
-      pendingFiles.forEach((item) => {
-        if (removeFromQueueIds.has(item.id) && item.previewUrl) {
-          URL.revokeObjectURL(item.previewUrl);
-        }
-      });
-
-      setPendingFiles(retryQueue);
-
-      if (uploadedCount > 0) {
-        await loadFiles(token, searchQuery);
-      }
-
-      if (uploadedCount > 0 || duplicateCount > 0) {
-        const summaryParts = [];
-        if (uploadedCount > 0) {
-          summaryParts.push(`${uploadedCount} uploaded`);
-          addNotification("success", `${uploadedCount} file(s) uploaded successfully`);
-        }
-        if (duplicateCount > 0) {
-          summaryParts.push(`${duplicateCount} duplicate rejected`);
-          addNotification("warning", `${duplicateCount} duplicate file(s) were rejected`);
-        }
-        setSuccessMessage(summaryParts.join(". "));
-      }
-
-      if (retryQueue.length > 0) {
-        addNotification("error", `${retryQueue.length} file(s) failed and remain in queue`);
-        setErrorMessage(`${retryQueue.length} file(s) failed and remain in queue.`);
-      }
-    } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
+      const data = await getFiles(activeToken, "");
+      setFiles(data?.files || data || []);
+    } catch (e) {
+      setErrorMessage("Sync failed: " + e.message);
+      if (e.message.includes("401")) handleLogout();
     }
-  }
+  }, [handleLogout]);
 
-  async function handleDeleteFile() {
-    if (!fileToDelete || !token) {
-      return;
-    }
+  useEffect(() => {
+    if (authState.token) loadFiles(authState.token);
+  }, [authState.token, loadFiles]);
 
-    try {
-      await deleteFileMetadata(token, fileToDelete.id);
-      setFiles((prev) => prev.filter((item) => item.id !== fileToDelete.id));
-      setSuccessMessage("File deleted");
-    } catch (error) {
-      setErrorMessage(error.message || "Delete failed");
-    } finally {
-      setFileToDelete(null);
-    }
-  }
+  // --- 4. DATA PROCESSING ---
+  const fileStats = useMemo(() => {
+    const stats = { images: 0, docs: 0, music: 0, totalSize: 0, types: { pdf: 0, image: 0 } };
+    if (!Array.isArray(files)) return stats;
+    files.forEach(file => {
+      const name = (file.filename || file.name || "").toLowerCase();
+      stats.totalSize += (file.size || 0);
+      if (/\.(jpg|jpeg|png)$/.test(name)) { stats.images++; stats.types.image++; }
+      else if (name.endsWith('.pdf')) { stats.docs++; stats.types.pdf++; }
+    });
+    return stats;
+  }, [files]);
 
-  async function handleDeleteAll() {
-    if (!token) {
-      return;
-    }
+  const filteredFiles = useMemo(() => {
+    if (!Array.isArray(files)) return [];
+    return files.filter(f => (f.filename || f.name || "").toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [files, searchQuery]);
 
-    try {
-      await deleteAllFileMetadata(token);
-      setFiles([]);
-      setSuccessMessage("All file metadata deleted");
-    } catch (error) {
-      setErrorMessage(error.message || "Delete all failed");
-    } finally {
-      setConfirmDeleteAll(false);
-    }
-  }
+  // --- 5. RENDER LOGIC ---
 
-  if (!token) {
+  if (authState.isInitializing) {
     return (
-      <ThemeProvider theme={appTheme}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+        <LinearProgress sx={{ width: '200px', mb: 2 }} />
+        <Typography variant="caption">BOOTING VAULT...</Typography>
+      </Box>
+    );
+  }
+
+  if (!authState.token) {
+    return (
+      <ThemeProvider theme={dashboardTheme}>
         <CssBaseline />
-        <AuthPanel onLogin={handleLogin} onSignup={handleSignup} loading={authLoading} />
-        <Snackbar
-          open={Boolean(errorMessage)}
-          autoHideDuration={3500}
-          onClose={() => setErrorMessage("")}
-          anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        >
-          <Alert severity="error" onClose={() => setErrorMessage("")}>
-            {errorMessage}
-          </Alert>
+        <AuthPanel
+          onLogin={async (creds) => {
+            try {
+              const res = await login(creds);
+              handleAuthSuccess(res);
+            } catch (err) { setErrorMessage(err.response?.data?.message || err.message); }
+          }}
+          onSignup={async (form) => {
+            try {
+              const res = await signup(form);
+              handleAuthSuccess(res);
+            } catch (err) { setErrorMessage(err.response?.data?.message || err.message); }
+          }}
+        />
+        <Snackbar open={!!errorMessage} autoHideDuration={4000} onClose={() => setErrorMessage("")}>
+          <Alert severity="error" variant="filled">{errorMessage}</Alert>
         </Snackbar>
       </ThemeProvider>
     );
   }
 
+  const userInitial = authState.user?.name?.charAt(0).toUpperCase() || "U";
+
   return (
-    <ThemeProvider theme={appTheme}>
+    <ThemeProvider theme={dashboardTheme}>
       <CssBaseline />
-      <Container maxWidth="xl" sx={{ py: 3 }}>
-        <Stack spacing={2.5}>
-          <AppNavbar
-            mode={mode}
-            onToggleMode={() => setMode((prev) => (prev === "light" ? "dark" : "light"))}
-            quickSearch={searchQuery}
-            onQuickSearchChange={setSearchQuery}
-            userName={user?.name || "User"}
-            userEmail={user?.email || ""}
-            userCreatedAt={user?.createdAt || ""}
-            notifications={notifications}
-            unreadNotificationCount={unreadNotificationCount}
-            onOpenNotifications={markNotificationsAsRead}
-            onClearNotifications={clearNotifications}
-            onLogout={handleLogout}
-          />
+      <Box sx={{ display: "flex", minHeight: "100vh" }}>
 
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={2.5} lg={2}>
-              <AppSidebar activeNav={activeNav} onChangeNav={setActiveNav} />
-            </Grid>
-            <Grid item xs={12} md={9.5} lg={10}>
-              <Stack spacing={2}>
-                {activeNav === "dashboard" && (
-                  <>
-                    {filesLoading ? (
-                      <LoadingState title="Loading dashboard..." subtitle="Fetching latest file insights" />
-                    ) : (
-                      <Stack spacing={2}>
-                        <Stack
-                          direction={{ xs: "column", md: "row" }}
-                          justifyContent="space-between"
-                          alignItems={{ xs: "flex-start", md: "center" }}
-                          spacing={1}
-                        >
-                          <Box>
-                            <Typography variant="h6">Dashboard Overview</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Track your documents, activity trends, and file type distribution.
-                            </Typography>
-                          </Box>
-                          <Stack direction="row" spacing={1}>
-                            <Button variant="outlined" onClick={() => setActiveNav("files")}>Browse Files</Button>
-                            <Button variant="contained" onClick={() => setActiveNav("upload")}>Upload New</Button>
-                          </Stack>
-                        </Stack>
+        {/* FIX: Set higher Z-index for AppBar */}
+        <AppBar position="fixed" elevation={0} sx={{ bgcolor: "white", borderBottom: "1px solid #edf2f7", zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+          <Toolbar sx={{ justifyContent: "space-between" }}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <IconButton onClick={() => setDrawerOpen(!isDrawerOpen)} sx={{ color: "#1a202c" }}><Menu /></IconButton>
+              <Typography variant="h6" sx={{ color: "#1a202c", fontWeight: 900 }}>VAULT 2026</Typography>
+            </Stack>
+            <Stack direction="row" alignItems="center" spacing={2}>
+              <Avatar sx={{ bgcolor: "#3a97f9" }}>{userInitial}</Avatar>
+              <IconButton onClick={handleLogout} color="error"><Logout /></IconButton>
+            </Stack>
+          </Toolbar>
+        </AppBar>
 
-                        <Grid container spacing={1.5}>
-                          <Grid item xs={12} sm={6} lg={3}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
-                              <Typography variant="body2" color="text.secondary">Total Files</Typography>
-                              <Typography variant="h5">{dashboardStats.total}</Typography>
-                            </Box>
-                          </Grid>
-                          <Grid item xs={12} sm={6} lg={3}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
-                              <Typography variant="body2" color="text.secondary">Storage Used</Typography>
-                              <Typography variant="h5">{formatBytes(dashboardStats.storage)}</Typography>
-                            </Box>
-                          </Grid>
-                          <Grid item xs={12} sm={6} lg={3}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
-                              <Typography variant="body2" color="text.secondary">Active File Types</Typography>
-                              <Typography variant="h5">{Object.keys(dashboardStats.byType).length}</Typography>
-                            </Box>
-                          </Grid>
-                          <Grid item xs={12} sm={6} lg={3}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper" }}>
-                              <Typography variant="body2" color="text.secondary">Uploads (7 Days)</Typography>
-                              <Typography variant="h5">{weeklyUploadActivity.totalUploads}</Typography>
-                            </Box>
-                          </Grid>
-                        </Grid>
+        {/* FIX: Use Toolbar spacer inside Drawer to prevent content from hiding behind AppBar */}
+        <Drawer
+          open={isDrawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          sx={{
+            width: DRAWER_WIDTH,
+            flexShrink: 0,
+            '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' },
+          }}
+        >
+          <Toolbar /> {/* This is the hidden spacer */}
+          <Box sx={{ p: 2 }}>
+            <List>
+              <MenuLink
+                icon={<Dashboard />}
+                label="Dashboard"
+                active={activeNav === 'dashboard'}
+                onClick={() => { setActiveNav('dashboard'); setDrawerOpen(false); }}
+              />
+              <MenuLink
+                icon={<CloudUpload />}
+                label="Upload"
+                active={activeNav === 'upload'}
+                onClick={() => { setActiveNav('upload'); setDrawerOpen(false); }}
+              />
+            </List>
+          </Box>
+        </Drawer>
 
-                        <Grid container spacing={1.5}>
-                          <Grid item xs={12} lg={6}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper", height: "100%" }}>
-                              <Typography variant="subtitle1" fontWeight={700}>Top File Types</Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                Distribution of the most common document types in your account.
-                              </Typography>
-
-                              {topFileTypes.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">No data yet.</Typography>
-                              ) : (
-                                <Stack spacing={1.4}>
-                                  {topFileTypes.map((item) => (
-                                    <Box key={item.type}>
-                                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
-                                        <Typography variant="body2" sx={{ textTransform: "capitalize" }}>{item.type}</Typography>
-                                        <Typography variant="caption" color="text.secondary">{item.count} files ({item.percentage}%)</Typography>
-                                      </Stack>
-                                      <Box sx={{ height: 8, borderRadius: 999, bgcolor: "action.hover", overflow: "hidden" }}>
-                                        <Box
-                                          sx={{
-                                            width: `${item.percentage}%`,
-                                            height: "100%",
-                                            bgcolor: "primary.main"
-                                          }}
-                                        />
-                                      </Box>
-                                    </Box>
-                                  ))}
-                                </Stack>
-                              )}
-                            </Box>
-                          </Grid>
-
-                          <Grid item xs={12} lg={6}>
-                            <Box sx={{ p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2, bgcolor: "background.paper", height: "100%" }}>
-                              <Typography variant="subtitle1" fontWeight={700}>Last 7 Days Activity</Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                Daily upload count for the past week.
-                              </Typography>
-
-                              <Stack direction="row" alignItems="flex-end" spacing={1} sx={{ minHeight: 120 }}>
-                                {weeklyUploadActivity.days.map((day) => {
-                                  const height = Math.max(8, Math.round((day.count / weeklyUploadActivity.maxCount) * 84));
-                                  return (
-                                    <Box key={day.key} sx={{ flex: 1, textAlign: "center" }}>
-                                      <Box
-                                        sx={{
-                                          height,
-                                          borderRadius: 1,
-                                          bgcolor: day.count > 0 ? "secondary.main" : "action.disabledBackground",
-                                          transition: "0.2s ease"
-                                        }}
-                                      />
-                                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.6 }}>
-                                        {day.label}
-                                      </Typography>
-                                      <Typography variant="caption" sx={{ display: "block" }}>
-                                        {day.count}
-                                      </Typography>
-                                    </Box>
-                                  );
-                                })}
-                              </Stack>
-                            </Box>
-                          </Grid>
-                        </Grid>
-
-                        <Typography variant="h6" sx={{ mt: 1 }}>Recent Files</Typography>
-                        {recentFiles.length === 0 ? (
-                          <EmptyState
-                            title="No recent files"
-                            description="Upload files to populate your dashboard overview."
-                          />
-                        ) : (
-                          <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, overflow: "hidden", bgcolor: "background.paper" }}>
-                            {recentFiles.map((file, index) => (
-                              <Box
-                                key={file.id}
-                                sx={{
-                                  p: 1.5,
-                                  borderTop: index === 0 ? "none" : "1px solid",
-                                  borderColor: "divider"
-                                }}
-                              >
-                                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                                  <Box sx={{ minWidth: 0 }}>
-                                    <Typography variant="body2" fontWeight={600} noWrap>
-                                      {file.name}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary" noWrap>
-                                      {file.path}
-                                    </Typography>
-                                  </Box>
-                                  <Stack direction="row" spacing={1} alignItems="center">
-                                    <Typography variant="caption" color="text.secondary" sx={{ textTransform: "capitalize" }}>
-                                      {file.type}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      {formatBytes(file.size)}
-                                    </Typography>
-                                  </Stack>
-                                </Stack>
-                              </Box>
-                            ))}
-                          </Box>
-                        )}
-                      </Stack>
-                    )}
-                  </>
-                )}
-
-                {activeNav === "files" && (
-                  <>
-                    <Stack
-                      direction={{ xs: "column", md: "row" }}
-                      spacing={1}
-                      justifyContent="space-between"
-                      alignItems={{ xs: "flex-start", md: "center" }}
-                    >
-                      <Box>
-                        <Typography variant="h6">Files</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Search, filter, and manage your indexed files.
-                        </Typography>
-                      </Box>
-                      <Button
-                        color="error"
-                        variant="outlined"
-                        onClick={() => setConfirmDeleteAll(true)}
-                        disabled={files.length === 0}
-                      >
-                        Delete All Files
-                      </Button>
-                    </Stack>
-
-                    <SearchFilterBar
-                      nameQuery={searchQuery}
-                      onNameQueryChange={setSearchQuery}
-                      typeFilter={typeFilter}
-                      onTypeFilterChange={setTypeFilter}
-                      dateFilter={dateFilter}
-                      onDateFilterChange={setDateFilter}
-                      viewMode={viewMode}
-                      onViewModeChange={setViewMode}
-                    />
-
-                    {filesLoading ? (
-                      <LoadingState />
-                    ) : visibleFiles.length === 0 ? (
-                      <EmptyState
-                        title="No files found"
-                        description="Upload files or change filters to view matching records."
-                      />
-                    ) : viewMode === "grid" ? (
-                      <FileGrid
-                        files={visibleFiles}
-                        searchQuery={searchQuery}
-                        onRequestDelete={setFileToDelete}
-                      />
-                    ) : (
-                      <FileList
-                        files={visibleFiles}
-                        searchQuery={searchQuery}
-                        onRequestDelete={setFileToDelete}
-                      />
-                    )}
-                  </>
-                )}
-
-                {activeNav === "upload" && (
-                  <UploadPanel
-                    pendingFiles={pendingFiles}
-                    uploadProgress={uploadProgress}
-                    isUploading={isUploading}
-                    onFilesSelected={handleFilesSelected}
-                    onStartUpload={handleStartUpload}
-                  />
-                )}
-
+        {/* FIX: Use Toolbar spacer in Main content to fix the "Hello" cut-off */}
+        <Box component="main" sx={{ flexGrow: 1, p: { xs: 3, md: 5 } }}>
+          <Toolbar /> {/* This pushes "Welcome" down */}
+          <Typography variant="h3" fontWeight={900} mb={4}>
+            Welcome, {authState.user?.name || 'User'}
+          </Typography>
+          <Grid container spacing={4}>
+            <Grid item xs={12} lg={8}>
+              <Stack spacing={4}>
+                <CategoryCards stats={fileStats} />
+                <RecentFilesTable files={filteredFiles} />
               </Stack>
             </Grid>
+            <Grid item xs={12} lg={4}>
+              <StoragePanel totalSize={fileStats.totalSize} />
+            </Grid>
           </Grid>
-        </Stack>
-      </Container>
+        </Box>
+      </Box>
 
-      <ConfirmDialog
-        open={Boolean(fileToDelete)}
-        title="Delete file"
-        description={fileToDelete ? `Delete ${fileToDelete.name}?` : "Delete this file?"}
-        onCancel={() => setFileToDelete(null)}
-        onConfirm={handleDeleteFile}
-      />
-
-      <ConfirmDialog
-        open={confirmDeleteAll}
-        title="Delete all files"
-        description="This will remove all indexed file metadata for your account."
-        onCancel={() => setConfirmDeleteAll(false)}
-        onConfirm={handleDeleteAll}
-      />
-
-      <Snackbar
-        open={Boolean(errorMessage)}
-        autoHideDuration={3500}
-        onClose={() => setErrorMessage("")}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-      >
-        <Alert severity="error" onClose={() => setErrorMessage("")}>
-          {errorMessage}
-        </Alert>
+      {/* Notifications */}
+      <Snackbar open={!!errorMessage} autoHideDuration={4000} onClose={() => setErrorMessage("")}>
+        <Alert severity="error" variant="filled">{errorMessage}</Alert>
       </Snackbar>
-
-      <Snackbar
-        open={Boolean(successMessage)}
-        autoHideDuration={2500}
-        onClose={() => setSuccessMessage("")}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert severity="success" onClose={() => setSuccessMessage("")}>
-          {successMessage}
-        </Alert>
+      <Snackbar open={!!successMessage} autoHideDuration={3000} onClose={() => setSuccessMessage("")}>
+        <Alert severity="success" variant="filled">{successMessage}</Alert>
       </Snackbar>
     </ThemeProvider>
+  );
+}
+
+function MenuLink({ icon, label, active, onClick }) {
+  return (
+    <ListItemButton onClick={onClick} sx={{ borderRadius: 3, mb: 1, bgcolor: active ? 'rgba(58, 151, 249, 0.08)' : 'transparent' }}>
+      <ListItemIcon sx={{ color: active ? '#3a97f9' : '#a0aec0', minWidth: 45 }}>{icon}</ListItemIcon>
+      <ListItemText primary={label} primaryTypographyProps={{ fontWeight: 700, color: active ? '#3a97f9' : '#4a5568' }} />
+    </ListItemButton>
   );
 }

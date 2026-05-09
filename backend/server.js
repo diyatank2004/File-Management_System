@@ -14,29 +14,41 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
+// Rate limiting for security
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // Limit each IP to 200 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "Too many requests. Please try again later." }
 });
 
-app.use(cors({ origin: CLIENT_URL }));
+// FIX: Improved CORS configuration
+app.use(cors({
+  origin: CLIENT_URL, // Use the variable instead of a hardcoded string
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true // Required if you use cookies/sessions for auth
+}));
+
 app.use(express.json({ limit: "2mb" }));
 app.use(morgan("dev"));
-app.use(apiLimiter);
+app.use("/api/", apiLimiter); // Apply limiter to all API routes
 
+// Health Check
 app.get("/api/health", (req, res) => {
-  res.status(200).json({ message: "Backend is running" });
+  res.status(200).json({ status: "ok", message: "Backend is running" });
 });
 
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/files", fileRoutes);
 
+// Error Handling Middleware
 app.use(notFoundHandler);
 app.use(errorHandler);
 
+// Database connection and server start
 connectDatabase()
   .then(() => {
     app.listen(PORT, () => {
