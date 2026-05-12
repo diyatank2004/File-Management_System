@@ -278,7 +278,7 @@ export default function App() {
                 </Paper>
                 <StoragePanel totalSize={stats.totalSize} />
                 <Box mt={3}>
-                  <ActivityFeed />
+                  <ActivityFeed files={files} />
                 </Box>
               </Grid>
             </Grid>

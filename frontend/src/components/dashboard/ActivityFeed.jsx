@@ -2,13 +2,40 @@ import React from 'react';
 import { Paper, Typography, Stack, Box, Avatar } from '@mui/material';
 import { FileUpload, ManageSearch, PersonAdd, Security } from '@mui/icons-material';
 
-export default function ActivityFeed() {
-    const activities = [
-        { id: 1, type: 'upload', text: 'You uploaded "Tax_2024.pdf"', time: '2 mins ago', icon: <FileUpload fontSize="small" />, color: '#0061FF' },
-        { id: 2, type: 'search', text: 'Deep search for "Invoice"', time: '1 hour ago', icon: <ManageSearch fontSize="small" />, color: '#10B981' },
-        { id: 3, type: 'security', text: 'Password was updated', time: 'Yesterday', icon: <Security fontSize="small" />, color: '#F43F5E' },
-        { id: 4, type: 'user', text: 'Account verified', time: '2 days ago', icon: <PersonAdd fontSize="small" />, color: '#6366F1' },
-    ];
+export default function ActivityFeed({ files = [] }) {
+    // Helper to format "time ago"
+    const getTimeAgo = (dateString) => {
+        const now = new Date();
+        const date = new Date(dateString);
+        const diffInSeconds = Math.floor((now - date) / 1000);
+
+        if (diffInSeconds < 60) return 'just now';
+        if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} mins ago`;
+        if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
+        return `${Math.floor(diffInSeconds / 86400)} days ago`;
+    };
+
+    // Transform files into activity items
+    const activities = files.slice(0, 5).map((file, index) => ({
+        id: file._id || index,
+        type: 'upload',
+        text: `You indexed "${file.filename}"`,
+        time: getTimeAgo(file.createdAt),
+        icon: <FileUpload fontSize="small" />,
+        color: '#0061FF'
+    }));
+
+    // If no files, show placeholders or a message
+    if (activities.length === 0) {
+        return (
+            <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid #E2E8F0' }} elevation={0}>
+                <Typography variant="h6" fontWeight={800} mb={3}>Recent Activity</Typography>
+                <Stack alignItems="center" justifyContent="center" py={4}>
+                    <Typography variant="body2" color="text.secondary">No recent activity detected.</Typography>
+                </Stack>
+            </Paper>
+        );
+    }
 
     return (
         <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid #E2E8F0' }} elevation={0}>
