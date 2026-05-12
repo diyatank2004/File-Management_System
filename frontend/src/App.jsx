@@ -21,6 +21,7 @@ import RecentFilesTable from "./components/files/RecentFilesTable";
 import StoragePanel from "./components/dashboard/StoragePanel";
 import QuickActions from "./components/dashboard/QuickActions";
 import ActivityFeed from "./components/dashboard/ActivityFeed";
+import StagingArea from "./components/upload/StagingArea";
 import Login from "./components/auth/Login";
 
 const DRAWER_WIDTH = 280;
@@ -63,42 +64,72 @@ export default function App() {
     if (authState.token) loadFiles(authState.token);
   }, [authState.token, loadFiles]);
 
+  const [fileStatuses, setFileStatuses] = useState({});
+
   const handleScanAndIndex = async () => {
     if (stagingFiles.length === 0) return;
 
     setIsScanning(true);
     let uploadedCount = 0;
     let duplicateCount = 0;
+    let errorCount = 0;
 
-    // OPTIMIZED: Create a Set for O(1) duplicate lookups
     const existingFileKeys = new Set(files.map(f => `${f.filename}-${f.size}`));
 
-    try {
-      for (const file of stagingFiles) {
-        const currentKey = `${file.name}-${file.size}`;
+    for (const file of stagingFiles) {
+      const currentKey = `${file.name}-${file.size}`;
 
-        if (existingFileKeys.has(currentKey)) {
-          duplicateCount++;
-          continue;
-        }
-
-        await uploadFile(authState.token, file);
-        uploadedCount++;
+      // 1. Local Duplicate Check
+      if (existingFileKeys.has(currentKey)) {
+        setFileStatuses(prev => ({ ...prev, [file.name]: 'duplicate' }));
+        duplicateCount++;
+        continue;
       }
 
-      setMsg({
-        success: `Scan Complete: ${uploadedCount} indexed. ${duplicateCount > 0 ? `Skipped ${duplicateCount} duplicates.` : ""}`,
-        error: "",
-        warning: ""
-      });
+      try {
+        // 2. Phase 1: Scanning (OCR Simulation for UI)
+        setFileStatuses(prev => ({ ...prev, [file.name]: 'scanning' }));
+        await new Promise(r => setTimeout(r, 600));
 
-      setStagingFiles([]);
-      await loadFiles(authState.token);
-    } catch (err) {
-      setMsg({ success: "", warning: "", error: "OCR/Indexing Engine Error. Check CORS or Auth." });
-    } finally {
-      setIsScanning(false);
+        // 3. Phase 2: Indexing (API Call)
+        setFileStatuses(prev => ({ ...prev, [file.name]: 'indexing' }));
+        await uploadFile(authState.token, file);
+        
+        // 4. Phase 3: Success
+        setFileStatuses(prev => ({ ...prev, [file.name]: 'success' }));
+        uploadedCount++;
+      } catch (err) {
+        console.error(`Error indexing ${file.name}:`, err);
+        const isDuplicate = err.message?.includes("already been indexed") || err.response?.status === 409;
+        
+        if (isDuplicate) {
+          setFileStatuses(prev => ({ ...prev, [file.name]: 'duplicate' }));
+          duplicateCount++;
+        } else {
+          setFileStatuses(prev => ({ ...prev, [file.name]: 'error' }));
+          errorCount++;
+        }
+      }
     }
+
+    setMsg({
+      success: uploadedCount > 0 ? `Successfully indexed ${uploadedCount} files.` : "",
+      error: errorCount > 0 ? `Failed to index ${errorCount} files.` : "",
+      warning: duplicateCount > 0 ? `Skipped ${duplicateCount} duplicates.` : ""
+    });
+
+    // Cleanup staging after a delay
+    setTimeout(() => {
+      // Use latest fileStatuses to keep files that are still processing
+      setStagingFiles(prev => prev.filter(f => {
+        const status = fileStatuses[f.name];
+        return status && status !== 'success' && status !== 'duplicate';
+      }));
+      setFileStatuses({});
+    }, 3000);
+    
+    await loadFiles(authState.token);
+    setIsScanning(false);
   };
 
   const stats = useMemo(() => {
@@ -149,11 +180,12 @@ export default function App() {
 
             <TextField
               size="small"
-              placeholder="Search files..."
+                            placeholder="Search Files..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               sx={{ width: 400, bgcolor: "#F1F5F9", borderRadius: 2, "& fieldset": { border: "none" } }}
               InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
+
             />
 
             <Stack direction="row" spacing={2} alignItems="center">
@@ -179,7 +211,7 @@ export default function App() {
               {[
                 { id: "dashboard", label: "Dashboard", icon: <DashboardIcon /> },
                 { id: "upload", label: "Upload & Scan", icon: <CloudUpload /> },
-                { id: "content-search", label: "Deep Search", icon: <ManageSearch /> }
+                { id: "content-search", label: "Smart Content Based Search", icon: <ManageSearch /> }
               ].map((item) => (
                 <ListItemButton
                   key={item.id}
@@ -253,37 +285,45 @@ export default function App() {
           )}
 
           {activeNav === "upload" && (
-            <Box textAlign="center" py={5} maxWidth={800} mx="auto">
-              <Paper sx={{ p: 6, border: '2px dashed #0061FF', bgcolor: 'rgba(0, 97, 255, 0.02)', borderRadius: 8, mb: 4 }} elevation={0}>
-                <FileUpload sx={{ fontSize: 80, color: 'primary.main', mb: 2 }} />
-                <Typography variant="h4" mb={1}>Lexicon Indexer</Typography>
-                <Typography color="text.secondary" mb={4}>Staging area for OCR and Content Extraction</Typography>
+            <Box py={2} maxWidth={900} mx="auto">
+              <Grid container spacing={4}>
+                <Grid item xs={12} md={stagingFiles.length > 0 ? 6 : 12}>
+                  <Paper sx={{ p: 6, border: '2px dashed #0061FF', bgcolor: 'rgba(0, 97, 255, 0.02)', borderRadius: 8, textAlign: 'center' }} elevation={0}>
+                    <FileUpload sx={{ fontSize: 80, color: 'primary.main', mb: 2 }} />
+                    <Typography variant="h4" mb={1} fontWeight={900}>Lexicon Indexer</Typography>
+                    <Typography color="text.secondary" mb={4}>Staging area for OCR and Content Extraction</Typography>
 
-                <Stack direction="row" spacing={2} justifyContent="center">
-                  <Button variant="contained" component="label" startIcon={<CloudUpload />} sx={{ borderRadius: 3, px: 4 }}>
-                    Select Files
-                    <input type="file" hidden multiple onChange={(e) => setStagingFiles(Array.from(e.target.files))} />
-                  </Button>
-                  <Button variant="outlined" component="label" startIcon={<DashboardIcon />} sx={{ borderRadius: 3, px: 4 }}>
-                    Folder Upload
-                    <input type="file" hidden webkitdirectory="true" multiple onChange={(e) => setStagingFiles(Array.from(e.target.files))} />
-                  </Button>
-                </Stack>
-              </Paper>
+                    <Stack direction="row" spacing={2} justifyContent="center">
+                      <Button variant="contained" component="label" startIcon={<CloudUpload />} sx={{ borderRadius: 3, px: 4 }}>
+                        Select Files
+                        <input type="file" hidden multiple onChange={(e) => setStagingFiles(Array.from(e.target.files))} />
+                      </Button>
+                      <Button variant="outlined" component="label" startIcon={<DashboardIcon />} sx={{ borderRadius: 3, px: 4 }}>
+                        Folder Upload
+                        <input type="file" hidden webkitdirectory="true" multiple onChange={(e) => setStagingFiles(Array.from(e.target.files))} />
+                      </Button>
+                    </Stack>
+                  </Paper>
+                </Grid>
 
-              {stagingFiles.length > 0 && (
-                <Box>
-                  <Alert icon={<WarningAmber />} severity="info" sx={{ mb: 3, borderRadius: 3 }}>
-                    {stagingFiles.length} files detected. Redundant files will be skipped automatically.
-                  </Alert>
-                  <Button
-                    fullWidth variant="contained" size="large" onClick={handleScanAndIndex} disabled={isScanning}
-                    sx={{ py: 2, borderRadius: 4, fontSize: '1.1rem', fontWeight: 900 }}
-                  >
-                    {isScanning ? "REVERSE INDEXING DATA..." : "COMMIT TO STORAGE"}
-                  </Button>
-                </Box>
-              )}
+                {stagingFiles.length > 0 && (
+                  <Grid item xs={12} md={6}>
+                    <StagingArea 
+                        stagingFiles={stagingFiles} 
+                        setStagingFiles={setStagingFiles} 
+                        fileStatuses={fileStatuses}
+                    />
+                    <Box mt={3}>
+                        <Button
+                            fullWidth variant="contained" size="large" onClick={handleScanAndIndex} disabled={isScanning}
+                            sx={{ py: 2, borderRadius: 4, fontSize: '1.1rem', fontWeight: 900, boxShadow: '0 8px 16px rgba(0,97,255,0.2)' }}
+                        >
+                            {isScanning ? "REVERSE INDEXING IN PROGRESS..." : "COMMIT TO STORAGE"}
+                        </Button>
+                    </Box>
+                  </Grid>
+                )}
+              </Grid>
             </Box>
           )}
 

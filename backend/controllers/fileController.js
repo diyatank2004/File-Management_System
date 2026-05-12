@@ -1,5 +1,5 @@
 import File from "../models/File.js";
-import * as pdf from 'pdf-parse';
+import pdf from 'pdf-parse';
 import Tesseract from "tesseract.js";
 
 const MAX_STORAGE_LIMIT = 1073741824;
@@ -82,43 +82,19 @@ export async function getFiles(req, res, next) {
 // import pdf from "pdf-parse"; 
 
 export async function uploadAndIndex(req, res, next) {
+  const fileName = req.file ? req.file.originalname : "unknown";
+  console.log(`[LEXICON_ENGINE] Starting process for: ${fileName}`);
+
   try {
     // 1. Validate File Presence
     if (!req.file) {
       return res.status(400).json({ message: "No file provided for scanning" });
     }
 
-    if (currentTotalSize + newFileSize > MAX_STORAGE_LIMIT) {
-      return res.status(400).json({ message: "Storage limit reached!" });
-    }
-
     const { buffer, originalname, mimetype, size } = req.file;
     const relativePath = req.body.relativePath || "";
-    let extractedText = "";
 
-    // 2. ENGINE: OCR / Text Extraction
-    try {
-      if (mimetype === "application/pdf") {
-        // Safe check for pdf-parse import style
-        const pdfParser = pdf.default ? pdf.default : pdf;
-        const data = await pdfParser(buffer);
-        extractedText = data.text;
-      } else if (mimetype.startsWith("image/")) {
-        // Tesseract works best with buffers in this specific call format
-        const { data: { text } } = await Tesseract.recognize(buffer, "eng");
-        extractedText = text;
-      }
-    } catch (engineErr) {
-      console.error("Extraction Engine Failed:", engineErr);
-      return res.status(500).json({ message: "Extraction Engine failed to read file content" });
-    }
-
-    // 3. CONTENT CLEANING
-    // If normalizeContent isn't defined, we'll do a basic trim/clean here
-    const normalizedContent = extractedText ? extractedText.trim().replace(/\s+/g, ' ') : "";
-
-    // 4. SMART DUPLICATE CHECK
-    // We check for the same user + same filename + same size to be safe
+    // 2. SMART DUPLICATE CHECK (Moved to use defined size)
     const duplicate = await File.findOne({
       uploadedBy: req.user.id,
       filename: originalname,
@@ -126,28 +102,64 @@ export async function uploadAndIndex(req, res, next) {
     }).select("_id").lean();
 
     if (duplicate) {
+      console.log(`[LEXICON_ENGINE] Duplicate detected: ${originalname}. Skipping...`);
       return res.status(409).json({ message: "This file has already been indexed." });
     }
 
-    // 5. FILE TYPE CATEGORIZATION
+    // 3. Storage Limit Check
+    const files = await File.find({ uploadedBy: req.user.id }).select("size").lean();
+    const currentTotalSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
+    
+    if (currentTotalSize + size > MAX_STORAGE_LIMIT) {
+      return res.status(400).json({ message: "Storage limit reached (1GB cap for free tier)." });
+    }
+
+    let extractedText = "";
+
+    // 4. ENGINE: OCR / Text Extraction
+    console.log(`[LEXICON_ENGINE] Extraction phase: ${mimetype}`);
+    try {
+      if (mimetype === "application/pdf") {
+        console.log(`[LEXICON_ENGINE] PDF parsing start`);
+        const data = await pdf(buffer);
+        console.log(`[LEXICON_ENGINE] PDF parsing completed`);
+        extractedText = data.text;
+      } else if (mimetype.startsWith("image/")) {
+        console.log(`[LEXICON_ENGINE] Image OCR start`);
+        const { data: { text } } = await Tesseract.recognize(buffer, "eng");
+        console.log(`[LEXICON_ENGINE] Image OCR completed`);
+        extractedText = text;
+      }
+    } catch (engineErr) {
+      console.error(`[LEXICON_ENGINE] Engine Failure for ${originalname}:`, engineErr.message);
+      // We still want to save the file even if OCR fails, but we'll log it
+      extractedText = ""; 
+    }
+
+    // 5. CONTENT CLEANING
+    const normalizedContent = extractedText ? extractedText.trim().replace(/\s+/g, ' ') : "";
+
+    // 6. FILE TYPE CATEGORIZATION
     let fileType = "other";
     if (mimetype.startsWith("image/")) fileType = "image";
     else if (mimetype === "application/pdf") fileType = "pdf";
     else if (mimetype.startsWith("audio/")) fileType = "music";
+    console.log(`[LEXICON_ENGINE] File type determined: ${fileType}`);
 
-    // 6. DATABASE COMMIT
+    // 7. DATABASE COMMIT
+    console.log(`[LEXICON_ENGINE] Committing to storage: ${originalname}`);
     const file = await File.create({
       filename: originalname,
       fileType,
       mimetype,
       size,
       content: normalizedContent,
-      // Helper to ensure path starts with a slash
       relativePath: relativePath.startsWith('/') ? relativePath : `/${relativePath}`,
       uploadedBy: req.user.id,
       hasPdfBinary: mimetype === "application/pdf"
     });
 
+    console.log(`[LEXICON_ENGINE] Completed: ${originalname}`);
     return res.status(201).json({
       message: "File successfully reverse-indexed",
       file: {
@@ -160,7 +172,6 @@ export async function uploadAndIndex(req, res, next) {
 
   } catch (error) {
     console.error("LEXICON_CORE_ERROR:", error);
-    // Use res.status here to ensure the frontend gets a clean JSON error
     return res.status(500).json({ message: "OCR/Indexing Engine Error", details: error.message });
   }
 }
