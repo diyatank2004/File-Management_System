@@ -11,12 +11,11 @@ export async function protect(req, res, next) {
 
     const token = authHeader.split(" ")[1];
 
-    // Ensure process.env.JWT_SECRET matches what was used in authRoutes
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const secret = process.env.JWT_SECRET || 'fallback_secret';
+    const decoded = jwt.verify(token, secret);
 
-    // FIX: Changed decoded.userId to decoded.id to match the login payload
     const user = await User.findById(decoded.id).select("_id name email createdAt");
-
+    
     if (!user) {
       return res.status(401).json({ message: "Unauthorized: User not found" });
     }
@@ -30,8 +29,6 @@ export async function protect(req, res, next) {
 
     return next();
   } catch (error) {
-    console.error("Auth Middleware Error:", error.message);
-
     if (error.name === "TokenExpiredError") {
       return res.status(401).json({ message: "Token expired. Please login again." });
     }
