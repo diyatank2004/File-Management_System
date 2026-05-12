@@ -16,8 +16,18 @@ export async function signup(req, res, next) {
       return res.status(400).json({ message: "Name, email, and password are required" });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ message: "Password must be at least 6 characters" });
+    // Email validation: must be @gmail.com
+    const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+    if (!gmailRegex.test(email)) {
+      return res.status(400).json({ message: "Only Gmail addresses (@gmail.com) are allowed" });
+    }
+
+    // Password validation: at least 8 chars, 1 upper, 1 lower, 1 number, 1 special char
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters long and include an uppercase letter, a lowercase letter, a number, and a special character (@$!%*?&)"
+      });
     }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });

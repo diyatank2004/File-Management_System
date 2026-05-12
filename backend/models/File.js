@@ -11,6 +11,12 @@ const fileSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true
+      // General categories: 'image', 'pdf', 'music', 'other'
+    },
+    mimetype: {
+      type: String,
+      default: ""
+      // Specific MIME type for backend scanning (e.g., 'application/pdf')
     },
     size: {
       type: Number,
@@ -20,6 +26,7 @@ const fileSchema = new mongoose.Schema(
     content: {
       type: String,
       default: ""
+      // Stores extracted text for Reverse Indexing
     },
     relativePath: {
       type: String,
@@ -44,5 +51,10 @@ const fileSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+// --- SEARCH OPTIMIZATION ---
+// This index allows MongoDB to search inside 'content' and 'filename' 
+// simultaneously during Content Search.
+fileSchema.index({ filename: "text", content: "text" });
 
 export default mongoose.model("File", fileSchema);

@@ -25,13 +25,14 @@ const apiLimiter = rateLimit({
 
 // FIX: Improved CORS configuration
 app.use(cors({
-  origin: CLIENT_URL, // Use the variable instead of a hardcoded string
+  origin: 'http://localhost:5173', // Use the variable instead of a hardcoded string
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true // Required if you use cookies/sessions for auth
 }));
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(morgan("dev"));
 app.use("/api/", apiLimiter); // Apply limiter to all API routes
 

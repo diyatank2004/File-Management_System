@@ -24,6 +24,8 @@ async function parseResponse(response) {
     if (response.status === 401) {
       console.warn("API_DEBUG: Unauthorized (401) - Clearing local session.");
       clearSession();
+      // Optional: Force a page reload to trigger the login redirect in App.jsx
+      window.location.reload();
     }
 
     const message = data.message || `Error ${response.status}: Request failed`;
@@ -34,13 +36,19 @@ async function parseResponse(response) {
 
 /**
  * Helper for Authorization headers
+ * FIXED: Removed default Content-Type to prevent conflicts with FormData
  */
-function authHeaders(token) {
-  return {
-    "Content-Type": "application/json",
+function authHeaders(token, isFormData = false) {
+  const headers = {
     "Authorization": `Bearer ${token}`,
     "Accept": "application/json"
   };
+
+  if (!isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
 }
 
 // --- Session Management ---
@@ -73,7 +81,6 @@ export function storeSession(token, user) {
     return;
   }
   localStorage.setItem(TOKEN_KEY, token);
-  // Ensure user is stored as a string
   const userValue = typeof user === 'object' ? JSON.stringify(user) : user;
   localStorage.setItem(USER_KEY, userValue);
   console.log("API_DEBUG: Session successfully saved.");
@@ -88,7 +95,6 @@ export function clearSession() {
 // --- Authentication Services ---
 
 export async function signup(payload) {
-  // FIX: Changed endpoint from /signup to /register to match backend routes
   const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -123,16 +129,17 @@ export async function getFiles(token, query = "") {
   return parseResponse(response);
 }
 
+/**
+ * FIXED: Explicitly use the authHeaders helper with the FormData flag.
+ * This ensures the browser generates the correct boundary string for the file.
+ */
 export async function uploadFile(token, file) {
   const formData = new FormData();
   formData.append("file", file);
 
   const response = await fetch(`${API_BASE_URL}/api/files/upload`, {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`
-      // Note: No Content-Type here, fetch handles it for FormData
-    },
+    headers: authHeaders(token, true), // true indicates FormData
     body: formData
   });
   return parseResponse(response);

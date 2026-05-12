@@ -2,239 +2,323 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import {
   Box, CssBaseline, Grid, Stack, Typography, Snackbar, Alert,
-  Avatar, LinearProgress, IconButton, AppBar,
-  Toolbar, Drawer, List, ListItemButton, ListItemIcon, ListItemText
+  Avatar, LinearProgress, IconButton, AppBar, TextField, Button,
+  Toolbar, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Paper,
+  InputAdornment, Tooltip as MuiTooltip, Chip
 } from "@mui/material";
 import {
-  Menu, Dashboard, CloudUpload, Logout
+  Menu, Dashboard as DashboardIcon, CloudUpload, Logout, ManageSearch, Search, FileUpload,
+  Settings, History, InfoOutlined, WarningAmber
 } from "@mui/icons-material";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
-// Component Imports
-import AuthPanel from "./components/auth/AuthPanel";
+// Services
+import { getFiles, uploadFile, getStoredToken, getStoredUser, clearSession } from "./services/api";
+
+// Local Dashboard Components
 import CategoryCards from "./components/dashboard/CategoryCards";
 import RecentFilesTable from "./components/files/RecentFilesTable";
 import StoragePanel from "./components/dashboard/StoragePanel";
-
-// API & Utils
-import {
-  getFiles, getStoredToken, getStoredUser, storeSession, clearSession,
-  login, signup
-} from "./services/api";
+import QuickActions from "./components/dashboard/QuickActions";
+import ActivityFeed from "./components/dashboard/ActivityFeed";
+import Login from "./components/auth/Login";
 
 const DRAWER_WIDTH = 280;
 
-export default function App() {
-  // --- CONSOLIDATED STATE ---
-  const [authState, setAuthState] = useState({
-    token: getStoredToken(),
-    user: getStoredUser(),
-    isInitializing: true
-  });
+const lexiconTheme = createTheme({
+  palette: {
+    primary: { main: "#0061FF" },
+    secondary: { main: "#60EFFF" },
+    background: { default: "#F8FAFC", paper: "#FFFFFF" },
+    text: { primary: "#1E293B", secondary: "#64748B" }
+  },
+  shape: { borderRadius: 12 },
+  typography: {
+    fontFamily: "'Inter', sans-serif",
+    h4: { fontWeight: 900, letterSpacing: "-0.02em" }
+  }
+});
 
+export default function App() {
+  const [authState, setAuthState] = useState({ token: getStoredToken(), user: getStoredUser() });
   const [files, setFiles] = useState([]);
   const [activeNav, setActiveNav] = useState("dashboard");
-  const [isDrawerOpen, setDrawerOpen] = useState(false);
+  const [isDrawerOpen, setDrawerOpen] = useState(true);
+  const [msg, setMsg] = useState({ error: "", success: "", warning: "" });
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [stagingFiles, setStagingFiles] = useState([]);
+  const [isScanning, setIsScanning] = useState(false);
 
-  const dashboardTheme = useMemo(() => createTheme({
-    palette: {
-      primary: { main: "#3a97f9" },
-      background: { default: "#f8f9fa", paper: "#ffffff" },
-    },
-    shape: { borderRadius: 16 },
-    typography: { fontFamily: "'Inter', sans-serif" }
-  }), []);
-
-  // --- 1. INITIALIZATION ---
-  useEffect(() => {
-    const t = getStoredToken();
-    const u = getStoredUser();
-    setAuthState({ token: t, user: u, isInitializing: false });
-  }, []);
-
-  // --- 2. AUTH HANDLERS ---
-  const handleAuthSuccess = useCallback((response) => {
-    const payload = response?.data || response;
-    const authToken = payload.token || payload.sfm_token;
-    const authUser = payload.user || payload.sfm_user;
-
-    if (authToken && authUser) {
-      storeSession(authToken, authUser);
-      setAuthState({
-        token: authToken,
-        user: authUser,
-        isInitializing: false
-      });
-      setSuccessMessage("Identity Verified.");
-    } else {
-      setErrorMessage("Authentication failed: Invalid data received.");
-    }
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    clearSession();
-    setAuthState({ token: null, user: null, isInitializing: false });
-    setFiles([]);
-  }, []);
-
-  // --- 3. DATA FETCHING ---
-  const loadFiles = useCallback(async (activeToken) => {
-    if (!activeToken) return;
+  const loadFiles = useCallback(async (token) => {
     try {
-      const data = await getFiles(activeToken, "");
-      setFiles(data?.files || data || []);
+      const data = await getFiles(token);
+      setFiles(Array.isArray(data) ? data : data.files || []);
     } catch (e) {
-      setErrorMessage("Sync failed: " + e.message);
-      if (e.message.includes("401")) handleLogout();
+      setMsg({ success: "", warning: "", error: "Lexicon sync failed." });
     }
-  }, [handleLogout]);
+  }, []);
 
   useEffect(() => {
     if (authState.token) loadFiles(authState.token);
   }, [authState.token, loadFiles]);
 
-  // --- 4. DATA PROCESSING ---
-  const fileStats = useMemo(() => {
-    const stats = { images: 0, docs: 0, music: 0, totalSize: 0, types: { pdf: 0, image: 0 } };
-    if (!Array.isArray(files)) return stats;
-    files.forEach(file => {
-      const name = (file.filename || file.name || "").toLowerCase();
-      stats.totalSize += (file.size || 0);
-      if (/\.(jpg|jpeg|png)$/.test(name)) { stats.images++; stats.types.image++; }
-      else if (name.endsWith('.pdf')) { stats.docs++; stats.types.pdf++; }
+  const handleScanAndIndex = async () => {
+    if (stagingFiles.length === 0) return;
+
+    setIsScanning(true);
+    let uploadedCount = 0;
+    let duplicateCount = 0;
+
+    // OPTIMIZED: Create a Set for O(1) duplicate lookups
+    const existingFileKeys = new Set(files.map(f => `${f.filename}-${f.size}`));
+
+    try {
+      for (const file of stagingFiles) {
+        const currentKey = `${file.name}-${file.size}`;
+
+        if (existingFileKeys.has(currentKey)) {
+          duplicateCount++;
+          continue;
+        }
+
+        await uploadFile(authState.token, file);
+        uploadedCount++;
+      }
+
+      setMsg({
+        success: `Scan Complete: ${uploadedCount} indexed. ${duplicateCount > 0 ? `Skipped ${duplicateCount} duplicates.` : ""}`,
+        error: "",
+        warning: ""
+      });
+
+      setStagingFiles([]);
+      await loadFiles(authState.token);
+    } catch (err) {
+      setMsg({ success: "", warning: "", error: "OCR/Indexing Engine Error. Check CORS or Auth." });
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const stats = useMemo(() => {
+    const s = { images: 0, docs: 0, music: 0, totalSize: 0 };
+    files.forEach(f => {
+      s.totalSize += (f.size || 0);
+      const mime = f.mimetype?.toLowerCase() || "";
+      if (mime.includes("image")) s.images++;
+      else if (mime.includes("pdf") || mime.includes("doc")) s.docs++;
+      else s.music++;
     });
-    return stats;
+    return s;
   }, [files]);
 
-  const filteredFiles = useMemo(() => {
-    if (!Array.isArray(files)) return [];
-    return files.filter(f => (f.filename || f.name || "").toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredByFilename = useMemo(() =>
+    files.filter(f => f.filename.toLowerCase().includes(searchQuery.toLowerCase())),
+    [files, searchQuery]);
+
+  // OPTIMIZED: Deep Search Result Memoization
+  const searchResults = useMemo(() => {
+    if (searchQuery.length < 3) return [];
+    return files.filter(f => f.content?.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [files, searchQuery]);
 
-  // --- 5. RENDER LOGIC ---
-
-  if (authState.isInitializing) {
-    return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
-        <LinearProgress sx={{ width: '200px', mb: 2 }} />
-        <Typography variant="caption">BOOTING VAULT...</Typography>
-      </Box>
-    );
-  }
+  const logout = () => {
+    clearSession();
+    setAuthState({ token: null, user: null });
+  };
 
   if (!authState.token) {
-    return (
-      <ThemeProvider theme={dashboardTheme}>
-        <CssBaseline />
-        <AuthPanel
-          onLogin={async (creds) => {
-            try {
-              const res = await login(creds);
-              handleAuthSuccess(res);
-            } catch (err) { setErrorMessage(err.response?.data?.message || err.message); }
-          }}
-          onSignup={async (form) => {
-            try {
-              const res = await signup(form);
-              handleAuthSuccess(res);
-            } catch (err) { setErrorMessage(err.response?.data?.message || err.message); }
-          }}
-        />
-        <Snackbar open={!!errorMessage} autoHideDuration={4000} onClose={() => setErrorMessage("")}>
-          <Alert severity="error" variant="filled">{errorMessage}</Alert>
-        </Snackbar>
-      </ThemeProvider>
-    );
+    return <ThemeProvider theme={lexiconTheme}><Login setAuthState={setAuthState} /></ThemeProvider>;
   }
 
-  const userInitial = authState.user?.name?.charAt(0).toUpperCase() || "U";
-
   return (
-    <ThemeProvider theme={dashboardTheme}>
+    <ThemeProvider theme={lexiconTheme}>
       <CssBaseline />
-      <Box sx={{ display: "flex", minHeight: "100vh" }}>
 
-        {/* FIX: Set higher Z-index for AppBar */}
-        <AppBar position="fixed" elevation={0} sx={{ bgcolor: "white", borderBottom: "1px solid #edf2f7", zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+      {isScanning && <LinearProgress sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 3000, height: 4 }} color="secondary" />}
+
+      <Box sx={{ display: "flex", minHeight: "100vh" }}>
+        <AppBar position="fixed" sx={{ bgcolor: "white", zIndex: (theme) => theme.zIndex.drawer + 1, borderBottom: "1px solid #E2E8F0" }} elevation={0}>
           <Toolbar sx={{ justifyContent: "space-between" }}>
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <IconButton onClick={() => setDrawerOpen(!isDrawerOpen)} sx={{ color: "#1a202c" }}><Menu /></IconButton>
-              <Typography variant="h6" sx={{ color: "#1a202c", fontWeight: 900 }}>VAULT 2026</Typography>
-            </Stack>
             <Stack direction="row" alignItems="center" spacing={2}>
-              <Avatar sx={{ bgcolor: "#3a97f9" }}>{userInitial}</Avatar>
-              <IconButton onClick={handleLogout} color="error"><Logout /></IconButton>
+              <IconButton onClick={() => setDrawerOpen(!isDrawerOpen)} sx={{ color: 'primary.main' }}><Menu /></IconButton>
+              <Typography variant="h6" color="primary" fontWeight={900} letterSpacing={-1}>LEXICON 2.6</Typography>
+              <Chip label="CORE ENGINE ACTIVE" size="small" color="success" variant="outlined" sx={{ fontWeight: 700, fontSize: '0.65rem' }} />
+            </Stack>
+
+            <TextField
+              size="small"
+              placeholder="Search files..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              sx={{ width: 400, bgcolor: "#F1F5F9", borderRadius: 2, "& fieldset": { border: "none" } }}
+              InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
+            />
+
+            <Stack direction="row" spacing={2} alignItems="center">
+              <MuiTooltip title="History"><IconButton size="small"><History /></IconButton></MuiTooltip>
+              <Avatar sx={{ bgcolor: "primary.main", width: 32, height: 32, fontSize: '0.8rem' }}>{authState.user?.name?.[0] || "U"}</Avatar>
+              <IconButton onClick={logout} size="small" color="error"><Logout /></IconButton>
             </Stack>
           </Toolbar>
         </AppBar>
 
-        {/* FIX: Use Toolbar spacer inside Drawer to prevent content from hiding behind AppBar */}
         <Drawer
+          variant="persistent"
           open={isDrawerOpen}
-          onClose={() => setDrawerOpen(false)}
           sx={{
             width: DRAWER_WIDTH,
-            flexShrink: 0,
-            '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' },
+            [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: "border-box", borderRight: "1px solid #E2E8F0", bgcolor: "#F8FAFC" },
           }}
         >
-          <Toolbar /> {/* This is the hidden spacer */}
-          <Box sx={{ p: 2 }}>
+          <Toolbar />
+          <Box p={3}>
+            <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ ml: 2, mb: 2, display: 'block' }}>MAIN MENU</Typography>
             <List>
-              <MenuLink
-                icon={<Dashboard />}
-                label="Dashboard"
-                active={activeNav === 'dashboard'}
-                onClick={() => { setActiveNav('dashboard'); setDrawerOpen(false); }}
-              />
-              <MenuLink
-                icon={<CloudUpload />}
-                label="Upload"
-                active={activeNav === 'upload'}
-                onClick={() => { setActiveNav('upload'); setDrawerOpen(false); }}
-              />
+              {[
+                { id: "dashboard", label: "Dashboard", icon: <DashboardIcon /> },
+                { id: "upload", label: "Upload & Scan", icon: <CloudUpload /> },
+                { id: "content-search", label: "Deep Search", icon: <ManageSearch /> }
+              ].map((item) => (
+                <ListItemButton
+                  key={item.id}
+                  onClick={() => setActiveNav(item.id)}
+                  selected={activeNav === item.id}
+                  sx={{ borderRadius: 3, mb: 1, '&.Mui-selected': { bgcolor: 'primary.main', color: 'white', '& .MuiListItemIcon-root': { color: 'white' } } }}
+                >
+                  <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.label} primaryTypographyProps={{ fontWeight: 600 }} />
+                </ListItemButton>
+              ))}
             </List>
           </Box>
         </Drawer>
 
-        {/* FIX: Use Toolbar spacer in Main content to fix the "Hello" cut-off */}
-        <Box component="main" sx={{ flexGrow: 1, p: { xs: 3, md: 5 } }}>
-          <Toolbar /> {/* This pushes "Welcome" down */}
-          <Typography variant="h3" fontWeight={900} mb={4}>
-            Welcome, {authState.user?.name || 'User'}
-          </Typography>
-          <Grid container spacing={4}>
-            <Grid item xs={12} lg={8}>
-              <Stack spacing={4}>
-                <CategoryCards stats={fileStats} />
-                <RecentFilesTable files={filteredFiles} />
-              </Stack>
+        <Box component="main" sx={{
+          flexGrow: 1,
+          p: 4,
+          transition: 'margin 0.3s ease-in-out',
+          marginLeft: isDrawerOpen ? 0 : `-${DRAWER_WIDTH}px`,
+          marginTop: 8
+        }}>
+
+          {activeNav === "dashboard" && (
+            <Grid container spacing={3}>
+              <Grid item xs={12} lg={8}>
+                <CategoryCards stats={{ images: stats.images, docs: stats.docs, music: stats.music, totalFiles: files.length }} />
+                <Paper sx={{ p: 0, borderRadius: 4, overflow: 'hidden', border: '1px solid #E2E8F0' }} elevation={0}>
+                  <RecentFilesTable files={filteredByFilename} />
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} lg={4}>
+                <QuickActions onAction={(a) => a === 'upload' && setActiveNav('upload')} />
+                <Paper sx={{ p: 3, mb: 3, borderRadius: 4, border: '1px solid #E2E8F0' }} elevation={0}>
+                  <Stack direction="row" justifyContent="space-between" mb={2}>
+                    <Typography variant="h6" fontWeight={800}>Content Mix</Typography>
+                    <MuiTooltip title="Analysis based on Mime-type"><InfoOutlined fontSize="small" /></MuiTooltip>
+                  </Stack>
+                  <Box height={320}>
+                    {files.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={[
+                              { name: 'Images', value: stats.images },
+                              { name: 'Docs', value: stats.docs },
+                              { name: 'Other', value: stats.music }
+                            ]}
+                            innerRadius={80} outerRadius={110} paddingAngle={8} dataKey="value"
+                          >
+                            <Cell fill="#0061FF" /><Cell fill="#60EFFF" /><Cell fill="#CBD5E1" />
+                          </Pie>
+                          <Tooltip />
+                          <Legend verticalAlign="bottom" height={36}/>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <Stack alignItems="center" justifyContent="center" height="100%" color="text.secondary">
+                        <Typography variant="caption">No data to display</Typography>
+                      </Stack>
+                    )}
+                  </Box>
+                </Paper>
+                <StoragePanel totalSize={stats.totalSize} />
+                <Box mt={3}>
+                  <ActivityFeed />
+                </Box>
+              </Grid>
             </Grid>
-            <Grid item xs={12} lg={4}>
-              <StoragePanel totalSize={fileStats.totalSize} />
-            </Grid>
-          </Grid>
+          )}
+
+          {activeNav === "upload" && (
+            <Box textAlign="center" py={5} maxWidth={800} mx="auto">
+              <Paper sx={{ p: 6, border: '2px dashed #0061FF', bgcolor: 'rgba(0, 97, 255, 0.02)', borderRadius: 8, mb: 4 }} elevation={0}>
+                <FileUpload sx={{ fontSize: 80, color: 'primary.main', mb: 2 }} />
+                <Typography variant="h4" mb={1}>Lexicon Indexer</Typography>
+                <Typography color="text.secondary" mb={4}>Staging area for OCR and Content Extraction</Typography>
+
+                <Stack direction="row" spacing={2} justifyContent="center">
+                  <Button variant="contained" component="label" startIcon={<CloudUpload />} sx={{ borderRadius: 3, px: 4 }}>
+                    Select Files
+                    <input type="file" hidden multiple onChange={(e) => setStagingFiles(Array.from(e.target.files))} />
+                  </Button>
+                  <Button variant="outlined" component="label" startIcon={<DashboardIcon />} sx={{ borderRadius: 3, px: 4 }}>
+                    Folder Upload
+                    <input type="file" hidden webkitdirectory="true" multiple onChange={(e) => setStagingFiles(Array.from(e.target.files))} />
+                  </Button>
+                </Stack>
+              </Paper>
+
+              {stagingFiles.length > 0 && (
+                <Box>
+                  <Alert icon={<WarningAmber />} severity="info" sx={{ mb: 3, borderRadius: 3 }}>
+                    {stagingFiles.length} files detected. Redundant files will be skipped automatically.
+                  </Alert>
+                  <Button
+                    fullWidth variant="contained" size="large" onClick={handleScanAndIndex} disabled={isScanning}
+                    sx={{ py: 2, borderRadius: 4, fontSize: '1.1rem', fontWeight: 900 }}
+                  >
+                    {isScanning ? "REVERSE INDEXING DATA..." : "COMMIT TO STORAGE"}
+                  </Button>
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {activeNav === "content-search" && (
+            <Box>
+              <Typography variant="h4" mb={1}>Deep Search</Typography>
+              <Typography color="text.secondary" mb={4}>Lexicon is searching INSIDE your documents using OCR.</Typography>
+              <TextField
+                fullWidth variant="outlined"
+                placeholder="Query content (e.g. 'Tax Invoice')..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{ startAdornment: <Search sx={{ mr: 1, color: 'primary.main' }} />, sx: { borderRadius: 4, bgcolor: 'white' } }}
+              />
+              <Box mt={4}>
+                {searchResults.length > 0 ? (
+                  <RecentFilesTable files={searchResults} />
+                ) : (
+                  <Box textAlign="center" py={10} sx={{ opacity: 0.3 }}>
+                    <ManageSearch sx={{ fontSize: 100 }} />
+                    <Typography variant="h6">{searchQuery.length < 3 ? "Awaiting Query..." : "No matches found."}</Typography>
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          )}
         </Box>
       </Box>
 
-      {/* Notifications */}
-      <Snackbar open={!!errorMessage} autoHideDuration={4000} onClose={() => setErrorMessage("")}>
-        <Alert severity="error" variant="filled">{errorMessage}</Alert>
+      <Snackbar open={!!msg.success} autoHideDuration={4000} onClose={() => setMsg({ ...msg, success: "" })}>
+        <Alert severity="success" variant="filled" sx={{ borderRadius: 3 }}>{msg.success}</Alert>
       </Snackbar>
-      <Snackbar open={!!successMessage} autoHideDuration={3000} onClose={() => setSuccessMessage("")}>
-        <Alert severity="success" variant="filled">{successMessage}</Alert>
+      <Snackbar open={!!msg.error} autoHideDuration={4000} onClose={() => setMsg({ ...msg, error: "" })}>
+        <Alert severity="error" variant="filled" sx={{ borderRadius: 3 }}>{msg.error}</Alert>
       </Snackbar>
     </ThemeProvider>
-  );
-}
-
-function MenuLink({ icon, label, active, onClick }) {
-  return (
-    <ListItemButton onClick={onClick} sx={{ borderRadius: 3, mb: 1, bgcolor: active ? 'rgba(58, 151, 249, 0.08)' : 'transparent' }}>
-      <ListItemIcon sx={{ color: active ? '#3a97f9' : '#a0aec0', minWidth: 45 }}>{icon}</ListItemIcon>
-      <ListItemText primary={label} primaryTypographyProps={{ fontWeight: 700, color: active ? '#3a97f9' : '#4a5568' }} />
-    </ListItemButton>
   );
 }

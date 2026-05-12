@@ -33,7 +33,21 @@ export default function CategoryCards({ stats = { images: 0, docs: 0, music: 0 }
             {categories.map((cat, i) => (
                 // Using Grid v2 style (removing 'item' prop as per your console warning)
                 <Grid size={{ xs: 12, md: 4 }} key={i}>
-                    <Paper elevation={0} sx={{ p: 3, bgcolor: cat.color, borderRadius: 4, textAlign: 'center' }}>
+                    <Paper 
+                        elevation={0} 
+                        sx={{ 
+                            p: 3, 
+                            bgcolor: cat.color, 
+                            borderRadius: 4, 
+                            textAlign: 'center',
+                            transition: 'all 0.3s ease-in-out',
+                            '&:hover': {
+                                transform: 'translateY(-5px)',
+                                boxShadow: '0 10px 20px rgba(0,0,0,0.05)',
+                                cursor: 'pointer'
+                            }
+                        }}
+                    >
                         <Box sx={{ bgcolor: 'white', display: 'inline-flex', p: 1.5, borderRadius: 3, color: cat.iconColor, mb: 2 }}>
                             {cat.icon}
                         </Box>
