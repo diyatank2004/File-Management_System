@@ -45,6 +45,10 @@ const fileSchema = new mongoose.Schema(
       ref: "User",
       required: true,
       index: true
+    },
+    fileHash: {
+      type: String,
+      index: true
     }
   },
   {

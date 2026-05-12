@@ -1,7 +1,9 @@
+import File from "../models/File.js";
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 import Tesseract from "tesseract.js";
+import crypto from "crypto";
 
 const MAX_STORAGE_LIMIT = 1073741824;
 
@@ -78,10 +80,7 @@ export async function getFiles(req, res, next) {
 
 /**
  * SCAN & UPLOAD
- */// Ensure you have these imports at the top of your controller:
-// import Tesseract from "tesseract.js";
-// import pdf from "pdf-parse"; 
-
+ */
 export async function uploadAndIndex(req, res, next) {
   const fileName = req.file ? req.file.originalname : "unknown";
   console.log(`[LEXICON_ENGINE] Starting process for: ${fileName}`);
@@ -95,19 +94,27 @@ export async function uploadAndIndex(req, res, next) {
     const { buffer, originalname, mimetype, size } = req.file;
     const relativePath = req.body.relativePath || "";
 
-    // 2. SMART DUPLICATE CHECK (Moved to use defined size)
+    // 2. GENERATE CONTENT HASH
+    const fileHash = crypto.createHash("sha256").update(buffer).digest("hex");
+
+    // 3. SMART DUPLICATE CHECK (Name OR Content Hash)
     const duplicate = await File.findOne({
       uploadedBy: req.user.id,
-      filename: originalname,
-      size: size
-    }).select("_id").lean();
+      $or: [
+        { filename: originalname, size: size },
+        { fileHash: fileHash }
+      ]
+    }).select("_id filename fileHash").lean();
 
     if (duplicate) {
-      console.log(`[LEXICON_ENGINE] Duplicate detected: ${originalname}. Skipping...`);
-      return res.status(409).json({ message: "This file has already been indexed." });
+      console.log(`[LEXICON_ENGINE] Duplicate detected: ${originalname} (Hash matched: ${duplicate.fileHash === fileHash}). Skipping...`);
+      return res.status(409).json({ 
+        message: "This file or identical content has already been indexed.",
+        duplicateOf: duplicate.filename 
+      });
     }
 
-    // 3. Storage Limit Check
+    // 4. Storage Limit Check
     const files = await File.find({ uploadedBy: req.user.id }).select("size").lean();
     const currentTotalSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
     
@@ -157,7 +164,8 @@ export async function uploadAndIndex(req, res, next) {
       content: normalizedContent,
       relativePath: relativePath.startsWith('/') ? relativePath : `/${relativePath}`,
       uploadedBy: req.user.id,
-      hasPdfBinary: mimetype === "application/pdf"
+      hasPdfBinary: mimetype === "application/pdf",
+      fileHash: fileHash
     });
 
     console.log(`[LEXICON_ENGINE] Completed: ${originalname}`);
