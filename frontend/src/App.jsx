@@ -27,6 +27,7 @@ import ActivityFeed from "./components/dashboard/ActivityFeed";
 import StagingArea from "./components/upload/StagingArea";
 import Login from "./components/auth/Login";
 import SettingsPage from "./pages/Settings";
+import ShareDialog from "./components/dashboard/ShareDialog";
 import { translations } from "./services/translations";
 import { motion, AnimatePresence } from "framer-motion";
 import { NearMe, ArrowForward, PlayCircleFilled } from "@mui/icons-material";
@@ -58,6 +59,7 @@ export default function App() {
   const [stagingFiles, setStagingFiles] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [isShareOpen, setIsShareOpen] = useState(false);
   const [language, setLanguage] = useState("English");
   const [guideStep, setGuideStep] = useState(-1);
 
@@ -272,7 +274,7 @@ export default function App() {
                       if (a === 'upload') setActiveNav('upload');
                       if (a === 'search') setActiveNav('content-search');
                       if (a === 'settings') setActiveNav('settings');
-                      if (a === 'share') setMsg({ ...msg, success: `${a.charAt(0).toUpperCase() + a.slice(1)} module initializing...` });
+                      if (a === 'share') setIsShareOpen(true);
                     }} t={t} />
                     <StorageBreakdown stats={{ images: stats.images, docs: stats.docs, music: stats.music }} t={t} />
                   </Stack>
@@ -474,6 +476,12 @@ export default function App() {
           </Box>
         )}
       </AnimatePresence>
+
+      <ShareDialog 
+        open={isShareOpen} 
+        onClose={() => setIsShareOpen(false)} 
+        files={files} 
+      />
 
       <Snackbar open={!!msg.success} autoHideDuration={4000} onClose={() => setMsg({ ...msg, success: "" })}>
         <Alert severity="success" variant="filled" sx={{ borderRadius: 3 }}>{msg.success}</Alert>
