@@ -19,10 +19,17 @@ import { getFiles, uploadFile, getStoredToken, getStoredUser, clearSession } fro
 import CategoryCards from "./components/dashboard/CategoryCards";
 import RecentFilesTable from "./components/files/RecentFilesTable";
 import StoragePanel from "./components/dashboard/StoragePanel";
+import ModernStorageHub from "./components/dashboard/ModernStorageHub";
+import StorageBreakdown from "./components/dashboard/StorageBreakdown";
+import SecurityCard from "./components/dashboard/SecurityCard";
 import QuickActions from "./components/dashboard/QuickActions";
 import ActivityFeed from "./components/dashboard/ActivityFeed";
 import StagingArea from "./components/upload/StagingArea";
 import Login from "./components/auth/Login";
+import SettingsPage from "./pages/Settings";
+import { translations } from "./services/translations";
+import { motion, AnimatePresence } from "framer-motion";
+import { NearMe, ArrowForward, PlayCircleFilled } from "@mui/icons-material";
 
 const DRAWER_WIDTH = 280;
 
@@ -50,6 +57,11 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [stagingFiles, setStagingFiles] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [language, setLanguage] = useState("English");
+  const [guideStep, setGuideStep] = useState(-1);
+
+  const t = translations[language] || translations.English;
 
   const loadFiles = useCallback(async (token) => {
     try {
@@ -138,8 +150,8 @@ export default function App() {
       s.totalSize += (f.size || 0);
       const mime = f.mimetype?.toLowerCase() || "";
       if (mime.includes("image")) s.images++;
-      else if (mime.includes("pdf") || mime.includes("doc")) s.docs++;
-      else s.music++;
+      else if (mime.includes("pdf") || mime.includes("doc") || mime.includes("text")) s.docs++;
+      else if (mime.includes("audio") || mime.includes("music") || mime.includes("mp3")) s.music++;
     });
     return s;
   }, [files]);
@@ -153,6 +165,17 @@ export default function App() {
     if (searchQuery.length < 3) return [];
     return files.filter(f => f.content?.toLowerCase().includes(searchQuery.toLowerCase()));
   }, [files, searchQuery]);
+
+  const categorizedFiles = useMemo(() => {
+    if (!selectedCategory) return [];
+    return files.filter(f => {
+      const mime = f.mimetype?.toLowerCase() || "";
+      if (selectedCategory === 'image') return mime.includes("image");
+      if (selectedCategory === 'doc') return mime.includes("pdf") || mime.includes("doc") || mime.includes("text");
+      if (selectedCategory === 'music') return mime.includes("audio") || mime.includes("music") || mime.includes("mp3");
+      return false;
+    });
+  }, [files, selectedCategory]);
 
   const logout = () => {
     clearSession();
@@ -206,12 +229,13 @@ export default function App() {
         >
           <Toolbar />
           <Box p={3}>
-            <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ ml: 2, mb: 2, display: 'block' }}>MAIN MENU</Typography>
+            <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ ml: 2, mb: 2, display: 'block' }}>{t.mainMenu}</Typography>
             <List>
               {[
-                { id: "dashboard", label: "Dashboard", icon: <DashboardIcon /> },
-                { id: "upload", label: "Upload & Scan", icon: <CloudUpload /> },
-                { id: "content-search", label: "Smart Content Based Search", icon: <ManageSearch /> }
+                { id: "dashboard", label: t.dashboard, icon: <DashboardIcon /> },
+                { id: "upload", label: t.upload, icon: <CloudUpload /> },
+                { id: "content-search", label: t.search, icon: <ManageSearch /> },
+                { id: "settings", label: t.settings, icon: <Settings /> }
               ].map((item) => (
                 <ListItemButton
                   key={item.id}
@@ -236,52 +260,81 @@ export default function App() {
         }}>
 
           {activeNav === "dashboard" && (
-            <Grid container spacing={3}>
-              <Grid item xs={12} lg={8}>
-                <CategoryCards stats={{ images: stats.images, docs: stats.docs, music: stats.music, totalFiles: files.length }} />
-                <Paper sx={{ p: 0, borderRadius: 4, overflow: 'hidden', border: '1px solid #E2E8F0' }} elevation={0}>
-                  <RecentFilesTable files={filteredByFilename} />
-                </Paper>
+            <Box>
+              {/* Top Row: Modern Storage Hub & Quick Actions */}
+              <Grid container spacing={4} mb={4}>
+                <Grid item xs={12} lg={8}>
+                  <ModernStorageHub totalSize={stats.totalSize} t={t} />
+                </Grid>
+                <Grid item xs={12} lg={4}>
+                  <Stack spacing={3}>
+                    <QuickActions onAction={(a) => {
+                      if (a === 'upload') setActiveNav('upload');
+                      if (a === 'search') setActiveNav('content-search');
+                      if (a === 'settings') setActiveNav('settings');
+                      if (a === 'share') setMsg({ ...msg, success: `${a.charAt(0).toUpperCase() + a.slice(1)} module initializing...` });
+                    }} t={t} />
+                    <StorageBreakdown stats={{ images: stats.images, docs: stats.docs, music: stats.music }} t={t} />
+                  </Stack>
+                </Grid>
               </Grid>
 
-              <Grid item xs={12} lg={4}>
-                <QuickActions onAction={(a) => a === 'upload' && setActiveNav('upload')} />
-                <Paper sx={{ p: 3, mb: 3, borderRadius: 4, border: '1px solid #E2E8F0' }} elevation={0}>
-                  <Stack direction="row" justifyContent="space-between" mb={2}>
-                    <Typography variant="h6" fontWeight={800}>Content Mix</Typography>
-                    <MuiTooltip title="Analysis based on Mime-type"><InfoOutlined fontSize="small" /></MuiTooltip>
-                  </Stack>
-                  <Box height={320}>
-                    {files.length > 0 ? (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={[
-                              { name: 'Images', value: stats.images },
-                              { name: 'Docs', value: stats.docs },
-                              { name: 'Other', value: stats.music }
-                            ]}
-                            innerRadius={80} outerRadius={110} paddingAngle={8} dataKey="value"
-                          >
-                            <Cell fill="#0061FF" /><Cell fill="#60EFFF" /><Cell fill="#CBD5E1" />
-                          </Pie>
-                          <Tooltip />
-                          <Legend verticalAlign="bottom" height={36}/>
-                        </PieChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <Stack alignItems="center" justifyContent="center" height="100%" color="text.secondary">
-                        <Typography variant="caption">No data to display</Typography>
-                      </Stack>
-                    )}
+              {/* Middle Row: Category Cards */}
+              <Box mb={5}>
+                <Typography variant="h6" fontWeight={800} mb={3} sx={{ opacity: 0.8 }}>{t.categories}</Typography>
+                <CategoryCards 
+                  stats={{ images: stats.images, docs: stats.docs, music: stats.music, totalFiles: files.length }} 
+                  onCategoryClick={(cat) => setSelectedCategory(selectedCategory === cat ? null : cat)}
+                  t={t}
+                />
+              </Box>
+
+              {/* Dynamic Row: Filtered File List (ONLY VISIBLE ON CLICK) */}
+              {selectedCategory && (
+                <Paper sx={{ p: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid #0061FF33', mb: 5, bgcolor: '#FFFFFF', boxShadow: '0 20px 40px rgba(0,97,255,0.05)' }} elevation={0}>
+                  <Box p={3} borderBottom="1px solid #E2E8F0" display="flex" justifyContent="space-between" alignItems="center" bgcolor="rgba(0, 97, 255, 0.02)">
+                    <Stack direction="row" spacing={2} alignItems="center">
+                        <Box sx={{ width: 8, height: 24, bgcolor: 'primary.main', borderRadius: 2 }} />
+                        <Typography variant="h6" fontWeight={900} color="primary" letterSpacing={1}>
+                          EXPLORING {selectedCategory.toUpperCase()}S
+                        </Typography>
+                    </Stack>
+                    <Button 
+                      variant="outlined"
+                      size="small" 
+                      onClick={() => setSelectedCategory(null)}
+                      sx={{ borderRadius: 3, fontWeight: 700, px: 3 }}
+                    >
+                      Close Explorer
+                    </Button>
                   </Box>
+                  <RecentFilesTable files={categorizedFiles} />
                 </Paper>
-                <StoragePanel totalSize={stats.totalSize} />
-                <Box mt={3}>
-                  <ActivityFeed files={files} />
-                </Box>
+              )}
+
+              {/* Bottom Row: Activity Feed & System Info */}
+              <Grid container spacing={4}>
+                <Grid item xs={12} lg={8}>
+                  <ActivityFeed files={files} t={t} />
+                </Grid>
+                <Grid item xs={12} lg={4}>
+                  <Paper sx={{ p: 4, borderRadius: 6, border: '1px solid #E2E8F0', bgcolor: '#F8FAFC' }} elevation={0}>
+                    <Typography variant="h6" fontWeight={800} mb={2}>{t.insights}</Typography>
+                    <Stack spacing={2}>
+                        <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #E2E8F0' }}>
+                            <Typography variant="caption" color="text.secondary">{t.syncStatus}</Typography>
+                            <Typography variant="body2" fontWeight={700} color="success.main">{t.optimized}</Typography>
+                        </Box>
+                        <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #E2E8F0' }}>
+                            <Typography variant="caption" color="text.secondary">{t.lastIndexed}</Typography>
+                            <Typography variant="body2" fontWeight={700}>{t.justNow}</Typography>
+                        </Box>
+                    </Stack>
+                  </Paper>
+                  <SecurityCard t={t} />
+                </Grid>
               </Grid>
-            </Grid>
+            </Box>
           )}
 
           {activeNav === "upload" && (
@@ -329,7 +382,7 @@ export default function App() {
 
           {activeNav === "content-search" && (
             <Box>
-              <Typography variant="h4" mb={1}>Deep Search</Typography>
+              <Typography variant="h4" mb={1}>{t.deepSearch}</Typography>
               <Typography color="text.secondary" mb={4}>Lexicon is searching INSIDE your documents using OCR.</Typography>
               <TextField
                 fullWidth variant="outlined"
@@ -350,8 +403,77 @@ export default function App() {
               </Box>
             </Box>
           )}
+
+          {activeNav === "settings" && (
+            <SettingsPage 
+                language={language} 
+                setLanguage={setLanguage} 
+                startGuide={() => { setActiveNav('dashboard'); setTimeout(() => setGuideStep(0), 500); }} 
+            />
+          )}
         </Box>
       </Box>
+
+      {/* GLOBAL GUIDED TOUR */}
+      <AnimatePresence>
+        {guideStep >= 0 && (
+          <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, bgcolor: 'rgba(0,0,0,0.8)', zIndex: 9999, pointerEvents: 'auto' }}>
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ 
+                opacity: 1, 
+                scale: 1,
+                top: [
+                    '30%', '25%', '25%', '60%', '5%'
+                ][guideStep],
+                left: [
+                    '5%', '35%', '85%', '40%', '50%'
+                ][guideStep]
+              }}
+              transition={{ type: 'spring', damping: 15 }}
+              style={{ position: 'absolute', transform: 'translate(-50%, -50%)' }}
+            >
+              <Paper sx={{ p: 4, borderRadius: 6, maxWidth: 300, border: '3px solid #0061FF', boxShadow: '0 0 50px rgba(0,97,255,0.5)' }}>
+                <Stack spacing={2.5}>
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box sx={{ bgcolor: 'primary.main', color: 'white', p: 0.5, borderRadius: 1.5, display: 'flex' }}>
+                        <NearMe fontSize="small" />
+                    </Box>
+                    <Typography variant="h6" fontWeight={900}>
+                        {[t.mainMenu, t.storageHub, "Actions", t.categories, t.search][guideStep]}
+                    </Typography>
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                    {[
+                      "Navigate through the system using this sidebar.",
+                      "Monitor your neural storage and cloud capacity here.",
+                      "Quickly access common tasks and data breakdowns.",
+                      "Deep dive into your files by their neural category.",
+                      "Search inside documents using our advanced OCR engine."
+                    ][guideStep]}
+                  </Typography>
+                  <Button 
+                    variant="contained" 
+                    fullWidth 
+                    onClick={() => guideStep < 4 ? setGuideStep(guideStep + 1) : setGuideStep(-1)}
+                    endIcon={<ArrowForward />}
+                    sx={{ borderRadius: 3, py: 1.2, fontWeight: 800 }}
+                  >
+                    {guideStep === 4 ? "EXPLORE NOW" : "NEXT STEP"}
+                  </Button>
+                </Stack>
+              </Paper>
+              <motion.div 
+                animate={{ y: [0, -15, 0] }} 
+                transition={{ repeat: Infinity, duration: 2 }}
+                style={{ position: 'absolute', bottom: -60, left: '50%', transform: 'translateX(-50%)' }}
+              >
+                <PlayCircleFilled sx={{ fontSize: 60, color: 'white', filter: 'drop-shadow(0 0 10px #0061FF)' }} />
+              </motion.div>
+            </motion.div>
+          </Box>
+        )}
+      </AnimatePresence>
 
       <Snackbar open={!!msg.success} autoHideDuration={4000} onClose={() => setMsg({ ...msg, success: "" })}>
         <Alert severity="success" variant="filled" sx={{ borderRadius: 3 }}>{msg.success}</Alert>

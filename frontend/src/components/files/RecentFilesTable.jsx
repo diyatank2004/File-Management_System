@@ -1,5 +1,5 @@
 import React from 'react';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper } from '@mui/material';
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography } from '@mui/material';
 
 export default function RecentFilesTable({ files }) {
     return (
@@ -13,13 +13,23 @@ export default function RecentFilesTable({ files }) {
                     </TableRow>
                 </TableHead>
                 <TableBody>
-                    {files.map((file, i) => (
-                        <TableRow key={i}>
-                            <TableCell>{file.filename || file.name}</TableCell>
-                            <TableCell>{new Date(file.createdAt || Date.now()).toLocaleDateString()}</TableCell>
-                            <TableCell>{(file.size / 1024 / 1024).toFixed(2)} MB</TableCell>
+                    {files.length > 0 ? (
+                        files.map((file, i) => (
+                            <TableRow key={i}>
+                                <TableCell>{file.filename || file.name}</TableCell>
+                                <TableCell>{new Date(file.createdAt || Date.now()).toLocaleDateString()}</TableCell>
+                                <TableCell>{(file.size / 1024 / 1024).toFixed(2)} MB</TableCell>
+                            </TableRow>
+                        ))
+                    ) : (
+                        <TableRow>
+                            <TableCell colSpan={3} align="center" sx={{ py: 8 }}>
+                                <Typography variant="body1" color="text.secondary" fontWeight={600}>
+                                    No files found in this category.
+                                </Typography>
+                            </TableCell>
                         </TableRow>
-                    ))}
+                    )}
                 </TableBody>
             </Table>
         </TableContainer>
