@@ -13,7 +13,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 // Services
-import { getFiles, uploadFile, getStoredToken, getStoredUser, clearSession } from "./services/api";
+import { getFiles, uploadFile, getStoredToken, getStoredUser, clearSession, deleteFileMetadata } from "./services/api";
 
 // Local Dashboard Components
 import CategoryCards from "./components/dashboard/CategoryCards";
@@ -28,6 +28,8 @@ import StagingArea from "./components/upload/StagingArea";
 import Login from "./components/auth/Login";
 import SettingsPage from "./pages/Settings";
 import ShareDialog from "./components/dashboard/ShareDialog";
+import SearchResultCard from "./components/dashboard/SearchResultCard";
+import FileSearchHeader from "./components/files/FileSearchHeader";
 import { translations } from "./services/translations";
 import { motion, AnimatePresence } from "framer-motion";
 import { NearMe, ArrowForward, PlayCircleFilled } from "@mui/icons-material";
@@ -62,13 +64,26 @@ export default function App() {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [language, setLanguage] = useState("English");
   const [guideStep, setGuideStep] = useState(-1);
+  const [fileStatuses, setFileStatuses] = useState({});
+  const [serverSearchResults, setServerSearchResults] = useState([]);
+  
+  // NEW: Search Filters & View Mode
+  const [filterType, setFilterType] = useState("all");
+  const [filterDate, setFilterDate] = useState("all");
+  const [viewMode, setViewMode] = useState("grid");
 
   const t = translations[language] || translations.English;
 
-  const loadFiles = useCallback(async (token) => {
+  const loadFiles = useCallback(async (token, query = "", mode = "both", type = "all", date = "all") => {
     try {
-      const data = await getFiles(token);
-      setFiles(Array.isArray(data) ? data : data.files || []);
+      const data = await getFiles(token, query, mode, type, date);
+      const fetchedFiles = Array.isArray(data) ? data : data.files || [];
+      console.log(`[LEXICON_DEBUG] Mode: ${mode}, Type: ${type}, Date: ${date}, Found: ${fetchedFiles.length} files`);
+      if (mode === "content" || type !== "all" || date !== "all") {
+        setServerSearchResults(fetchedFiles);
+      } else {
+        setFiles(fetchedFiles);
+      }
     } catch (e) {
       setMsg({ success: "", warning: "", error: "Lexicon sync failed." });
     }
@@ -78,7 +93,17 @@ export default function App() {
     if (authState.token) loadFiles(authState.token);
   }, [authState.token, loadFiles]);
 
-  const [fileStatuses, setFileStatuses] = useState({});
+  // DEBOUNCED SMART SEARCH (Strict Content Mode + Filters)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (activeNav === "files") {
+        loadFiles(authState.token, searchQuery, "content", filterType, filterDate);
+      } else {
+        setServerSearchResults([]);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [searchQuery, activeNav, filterType, filterDate, authState.token, loadFiles]);
 
   const handleScanAndIndex = async () => {
     if (stagingFiles.length === 0) return;
@@ -162,11 +187,15 @@ export default function App() {
     files.filter(f => f.filename.toLowerCase().includes(searchQuery.toLowerCase())),
     [files, searchQuery]);
 
-  // OPTIMIZED: Deep Search Result Memoization
+  // OPTIMIZED: Deep Search Result Memoization (STRICT SEPARATION)
   const searchResults = useMemo(() => {
+    // Mode 1: Smart Content Search (Server-side results ONLY)
+    if (activeNav === "files") return serverSearchResults;
+    
+    // Mode 2: Dashboard Search (Local Filename filtering ONLY)
     if (searchQuery.length < 3) return [];
-    return files.filter(f => f.content?.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [files, searchQuery]);
+    return files.filter(f => f.filename?.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [files, searchQuery, serverSearchResults, activeNav]);
 
   const categorizedFiles = useMemo(() => {
     if (!selectedCategory) return [];
@@ -235,8 +264,8 @@ export default function App() {
             <List>
               {[
                 { id: "dashboard", label: t.dashboard, icon: <DashboardIcon /> },
+                { id: "files", label: "FILES", icon: <ManageSearch /> },
                 { id: "upload", label: t.upload, icon: <CloudUpload /> },
-                { id: "content-search", label: t.search, icon: <ManageSearch /> },
                 { id: "settings", label: t.settings, icon: <Settings /> }
               ].map((item) => (
                 <ListItemButton
@@ -382,24 +411,56 @@ export default function App() {
             </Box>
           )}
 
-          {activeNav === "content-search" && (
+          {activeNav === "files" && (
             <Box>
-              <Typography variant="h4" mb={1}>{t.deepSearch}</Typography>
-              <Typography color="text.secondary" mb={4}>Lexicon is searching INSIDE your documents using OCR.</Typography>
-              <TextField
-                fullWidth variant="outlined"
-                placeholder="Query content (e.g. 'Tax Invoice')..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                InputProps={{ startAdornment: <Search sx={{ mr: 1, color: 'primary.main' }} />, sx: { borderRadius: 4, bgcolor: 'white' } }}
+              <FileSearchHeader 
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                filterType={filterType}
+                setFilterType={setFilterType}
+                filterDate={filterDate}
+                setFilterDate={setFilterDate}
+                viewMode={viewMode}
+                setViewMode={setViewMode}
+                onClear={() => {
+                  setSearchQuery("");
+                  setFilterType("all");
+                  setFilterDate("all");
+                }}
               />
-              <Box mt={4}>
+              
+              <Box mt={2}>
                 {searchResults.length > 0 ? (
-                  <RecentFilesTable files={searchResults} />
+                  viewMode === 'grid' ? (
+                    <Grid container spacing={3}>
+                      {searchResults.map((file) => (
+                        <Grid item xs={12} sm={6} md={4} lg={3} key={file._id}>
+                          <SearchResultCard file={file} query={searchQuery} onDelete={async (id) => {
+                            try {
+                              await deleteFileMetadata(authState.token, id);
+                              setServerSearchResults(prev => prev.filter(f => f._id !== id));
+                              setFiles(prev => prev.filter(f => f._id !== id));
+                              setMsg({ success: "File deleted successfully", error: "", warning: "" });
+                            } catch (e) {
+                              setMsg({ success: "", error: "Failed to delete file", warning: "" });
+                            }
+                          }} />
+                        </Grid>
+                      ))}
+                    </Grid>
+                  ) : (
+                    <Paper sx={{ borderRadius: 4, overflow: 'hidden', border: '1px solid #E2E8F0' }}>
+                      <RecentFilesTable files={searchResults} />
+                    </Paper>
+                  )
                 ) : (
-                  <Box textAlign="center" py={10} sx={{ opacity: 0.3 }}>
+                  <Box textAlign="center" py={15} sx={{ opacity: 0.3 }}>
                     <ManageSearch sx={{ fontSize: 100 }} />
-                    <Typography variant="h6">{searchQuery.length < 3 ? "Awaiting Query..." : "No matches found."}</Typography>
+                    <Typography variant="h6">
+                      {searchQuery.length > 0 || filterType !== 'all' || filterDate !== 'all' 
+                        ? "No matches found for your criteria." 
+                        : "Start typing to search inside your documents."}
+                    </Typography>
                   </Box>
                 )}
               </Box>

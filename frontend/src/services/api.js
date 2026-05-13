@@ -114,11 +114,14 @@ export async function login(payload) {
 
 // --- File Services ---
 
-export async function getFiles(token, query = "") {
+export async function getFiles(token, query = "", mode = "both", type = "all", date = "all") {
   if (!token) throw new Error("No authentication token provided");
 
   const params = new URLSearchParams();
   if (query.trim()) params.set("q", query.trim());
+  if (mode !== "both") params.set("mode", mode);
+  if (type !== "all") params.set("type", type);
+  if (date !== "all") params.set("date", date);
 
   const path = params.toString() ? `/api/files?${params.toString()}` : "/api/files";
 
