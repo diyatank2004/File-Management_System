@@ -28,10 +28,11 @@ function createSnippet(content, query) {
   const lowerContent = content.toLowerCase();
   const lowerQuery = query.toLowerCase();
   const index = lowerContent.indexOf(lowerQuery);
-  if (index === -1) return "";
+  if (index === -1) return content.slice(0, 400) + "...";
 
-  const start = Math.max(0, index - 120);
-  const end = Math.min(content.length, index + query.length + 220);
+  // EXPANDED: More context for the premium look
+  const start = Math.max(0, index - 200);
+  const end = Math.min(content.length, index + query.length + 400);
   const snippet = content.slice(start, end).replace(/\s+/g, " ").trim();
   return `${start > 0 ? "... " : ""}${snippet}${end < content.length ? " ..." : ""}`;
 }
@@ -44,19 +45,55 @@ function createSnippet(content, query) {
 export async function getFiles(req, res, next) {
   try {
     const query = String(req.query.q || "").trim();
+    const mode = req.query.mode || "both"; // modes: 'filename', 'content', 'both'
+    const type = req.query.type || "all";
+    const dateRange = req.query.date || "all";
     const userId = req.user.id;
+    
     const filter = { uploadedBy: userId };
     const includeContent = query.length >= 3;
 
-    if (query) {
-      const regex = new RegExp(escapeRegex(query), "i");
-      filter.$or = includeContent
-        ? [{ filename: regex }, { relativePath: regex }, { content: regex }]
-        : [{ filename: regex }, { relativePath: regex }];
+    // 1. Apply Type Filter
+    if (type !== "all") {
+      filter.fileType = type;
     }
 
+    // 2. Apply Date Filter
+    if (dateRange !== "all") {
+      const now = new Date();
+      let startDate;
+      if (dateRange === "today") {
+        startDate = new Date(now.setHours(0, 0, 0, 0));
+      } else if (dateRange === "week") {
+        startDate = new Date(now.setDate(now.getDate() - 7));
+      } else if (dateRange === "month") {
+        startDate = new Date(now.setMonth(now.getMonth() - 1));
+      }
+      if (startDate) {
+        filter.createdAt = { $gte: startDate };
+      }
+    }
+
+    // 3. Apply Search Query
+    if (query) {
+      const regex = new RegExp(escapeRegex(query), "i");
+      console.log(`[LEXICON_SEARCH] Mode: ${mode}, Query: ${query}`);
+      
+      if (mode === "content") {
+        filter.content = regex;
+      } else if (mode === "filename") {
+        filter.$or = [{ filename: regex }, { relativePath: regex }];
+      } else {
+        filter.$or = includeContent
+          ? [{ filename: regex }, { relativePath: regex }, { content: regex }]
+          : [{ filename: regex }, { relativePath: regex }];
+      }
+    }
+
+    console.log(`[LEXICON_SEARCH] Final Filter:`, JSON.stringify(filter));
     const projection = "filename fileType size createdAt content relativePath hasPdfBinary mimetype";
     const files = await File.find(filter, projection).sort({ createdAt: -1 }).lean();
+    console.log(`[LEXICON_SEARCH] Matches found: ${files.length}`);
 
     const normalizedFiles = files.map((file) => {
       const item = { ...file };
@@ -125,18 +162,28 @@ export async function uploadAndIndex(req, res, next) {
     let extractedText = "";
 
     // 4. ENGINE: OCR / Text Extraction
-    console.log(`[LEXICON_ENGINE] Extraction phase: ${mimetype}`);
+    console.log(`[LEXICON_ENGINE] Extraction phase for mimetype: ${mimetype}`);
     try {
-      if (mimetype === "application/pdf") {
-        console.log(`[LEXICON_ENGINE] PDF parsing start`);
-        const data = await pdf(buffer);
-        console.log(`[LEXICON_ENGINE] PDF parsing completed`);
-        extractedText = data.text;
-      } else if (mimetype.startsWith("image/")) {
-        console.log(`[LEXICON_ENGINE] Image OCR start`);
+      const isPdf = mimetype === "application/pdf" || mimetype === "application/x-pdf" || originalname.toLowerCase().endsWith(".pdf");
+      const isText = mimetype === "text/plain" || originalname.toLowerCase().endsWith(".txt");
+      const isImage = mimetype.startsWith("image/");
+
+      if (isPdf) {
+        console.log(`[LEXICON_ENGINE] PDF Digital Stream detected. Parsing with v2 engine...`);
+        const { PDFParse } = require('pdf-parse');
+        const parser = new PDFParse({ data: buffer });
+        const result = await parser.getText();
+        await parser.destroy();
+        extractedText = result.text || "";
+        console.log(`[LEXICON_ENGINE] PDF Extraction Completed. Length: ${extractedText.length}`);
+      } else if (isText) {
+        console.log(`[LEXICON_ENGINE] Plain Text detected. Reading...`);
+        extractedText = buffer.toString('utf8');
+      } else if (isImage) {
+        console.log(`[LEXICON_ENGINE] Image detected. Starting Neural OCR...`);
         const { data: { text } } = await Tesseract.recognize(buffer, "eng");
-        console.log(`[LEXICON_ENGINE] Image OCR completed`);
         extractedText = text;
+        console.log(`[LEXICON_ENGINE] Image OCR Completed. Length: ${extractedText.length}`);
       }
     } catch (engineErr) {
       console.error(`[LEXICON_ENGINE] Engine Failure for ${originalname}:`, engineErr.message);
