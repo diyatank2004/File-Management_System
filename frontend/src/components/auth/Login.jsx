@@ -4,12 +4,13 @@ import {
     IconButton, InputAdornment, Link, CircularProgress
 } from '@mui/material';
 import { Visibility, VisibilityOff, AutoGraph, FolderZip } from '@mui/icons-material';
-// CORRECT NAMES (Matching your api.js)
-import { login, signup } from '../../services/api';
+import { login, signup, storeSession } from '../../services/api';
+
 export default function Login({ setAuthState }) {
     const [isLogin, setIsLogin] = useState(true);
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
 
     // FORM STATE
     const [formData, setFormData] = useState({
@@ -20,22 +21,28 @@ export default function Login({ setAuthState }) {
 
     const handleInputChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
+        setError(""); // Clear error on input change
     };
 
     const validateForm = () => {
-        const { email, password } = formData;
-        
+        const { email, password, name } = formData;
+
         // Email validation: must be @gmail.com
         const gmailRegex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
         if (!gmailRegex.test(email)) {
-            alert("Only Gmail addresses (@gmail.com) are allowed.");
+            setError("Only Gmail addresses (@gmail.com) are allowed.");
             return false;
         }
 
         // Password validation: at least 8 chars, 1 upper, 1 lower, 1 number, 1 special char
         const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
         if (!passwordRegex.test(password)) {
-            alert("Password must be at least 8 characters long and include an uppercase letter, a lowercase letter, a number, and a special character (@$!%*?&).");
+            setError("Password must be at least 8 chars, with uppercase, lowercase, number, and special char (@$!%*?&).");
+            return false;
+        }
+
+        if (!isLogin && !name.trim()) {
+            setError("Name is required for signup.");
             return false;
         }
 
@@ -44,30 +51,39 @@ export default function Login({ setAuthState }) {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        
+        setError("");
+
         if (!validateForm()) return;
 
         setLoading(true);
 
         try {
             if (isLogin) {
-                // Use "login" instead of "loginUser"
                 const data = await login({
-                    email: formData.email,
+                    email: formData.email.trim().toLowerCase(),
                     password: formData.password
                 });
 
+                // Use storeSession utility for consistent state management
+                storeSession(data.token, data.user);
                 setAuthState({ token: data.token, user: data.user });
-                localStorage.setItem('sfm_token', data.token); // Note: Your api.js uses sfm_token
-                localStorage.setItem('sfm_user', JSON.stringify(data.user));
+                setFormData({ name: '', email: '', password: '' });
             } else {
-                // Use "signup" instead of "signupUser"
-                await signup(formData);
-                alert("Account created! Please sign in.");
-                setIsLogin(true);
+                const data = await signup({
+                    name: formData.name.trim(),
+                    email: formData.email.trim().toLowerCase(),
+                    password: formData.password
+                });
+
+                // Auto-login user after signup
+                storeSession(data.token, data.user);
+                setAuthState({ token: data.token, user: data.user });
+                setFormData({ name: '', email: '', password: '' });
             }
         } catch (err) {
-            alert(err.message || "An error occurred.");
+            const errorMsg = err.message || "An error occurred.";
+            setError(errorMsg);
+            console.error("Auth Error:", err);
         } finally {
             setLoading(false);
         }
@@ -94,6 +110,7 @@ export default function Login({ setAuthState }) {
                             showPassword={showPassword}
                             setShowPassword={setShowPassword}
                             loading={loading}
+                            error={error}
                         />
                     )}
                 </Box>
@@ -110,6 +127,7 @@ export default function Login({ setAuthState }) {
                             showPassword={showPassword}
                             setShowPassword={setShowPassword}
                             loading={loading}
+                            error={error}
                         />
                     )}
                 </Box>
@@ -145,7 +163,11 @@ export default function Login({ setAuthState }) {
                     </Typography>
                     <Button
                         variant="outlined"
-                        onClick={() => setIsLogin(!isLogin)}
+                        onClick={() => {
+                            setIsLogin(!isLogin);
+                            setError("");
+                            setFormData({ name: '', email: '', password: '' });
+                        }}
                         sx={{
                             color: 'white', borderColor: 'white', borderRadius: 10, px: 8,
                             py: 1.5, fontWeight: 700, borderWidth: 2,
@@ -162,7 +184,7 @@ export default function Login({ setAuthState }) {
 }
 
 // Sub-component for Form Fields
-function FormContent({ type, formData, handleInputChange, setIsLogin, handleSubmit, showPassword, setShowPassword, loading }) {
+function FormContent({ type, formData, handleInputChange, setIsLogin, handleSubmit, showPassword, setShowPassword, loading, error }) {
     const isLogin = type === "Login";
     return (
         <Box sx={{ width: '100%', maxWidth: '400px' }}>
@@ -178,6 +200,12 @@ function FormContent({ type, formData, handleInputChange, setIsLogin, handleSubm
                 </Typography>
             </Stack>
 
+            {error && (
+                <Box sx={{ p: 2, bgcolor: '#ffebee', border: '1px solid #ef5350', borderRadius: 2, mb: 3 }}>
+                    <Typography variant="body2" color="error">{error}</Typography>
+                </Box>
+            )}
+
             <form onSubmit={handleSubmit}>
                 <Stack spacing={3}>
                     {!isLogin && (
@@ -185,6 +213,7 @@ function FormContent({ type, formData, handleInputChange, setIsLogin, handleSubm
                             fullWidth label="Full Name" name="name"
                             variant="standard" required
                             value={formData.name} onChange={handleInputChange}
+                            disabled={loading}
                         />
                     )}
 
@@ -192,6 +221,7 @@ function FormContent({ type, formData, handleInputChange, setIsLogin, handleSubm
                         fullWidth label="Email Address" name="email"
                         variant="standard" type="email" required
                         value={formData.email} onChange={handleInputChange}
+                        disabled={loading}
                     />
 
                     <TextField
@@ -199,10 +229,11 @@ function FormContent({ type, formData, handleInputChange, setIsLogin, handleSubm
                         variant="standard" required
                         type={showPassword ? 'text' : 'password'}
                         value={formData.password} onChange={handleInputChange}
+                        disabled={loading}
                         InputProps={{
                             endAdornment: (
                                 <InputAdornment position="end">
-                                    <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                                    <IconButton onClick={() => setShowPassword(!showPassword)} edge="end" disabled={loading}>
                                         {showPassword ? <VisibilityOff /> : <Visibility />}
                                     </IconButton>
                                 </InputAdornment>

@@ -66,7 +66,7 @@ export default function App() {
   const [guideStep, setGuideStep] = useState(-1);
   const [fileStatuses, setFileStatuses] = useState({});
   const [serverSearchResults, setServerSearchResults] = useState([]);
-  
+
   // NEW: Search Filters & View Mode
   const [filterType, setFilterType] = useState("all");
   const [filterDate, setFilterDate] = useState("all");
@@ -78,14 +78,16 @@ export default function App() {
     try {
       const data = await getFiles(token, query, mode, type, date);
       const fetchedFiles = Array.isArray(data) ? data : data.files || [];
-      console.log(`[LEXICON_DEBUG] Mode: ${mode}, Type: ${type}, Date: ${date}, Found: ${fetchedFiles.length} files`);
+      console.log(`[LEXICON_SEARCH] Mode: ${mode}, Type: ${type}, Date: ${date}, Found: ${fetchedFiles.length} files`);
       if (mode === "content" || type !== "all" || date !== "all") {
         setServerSearchResults(fetchedFiles);
       } else {
         setFiles(fetchedFiles);
       }
     } catch (e) {
-      setMsg({ success: "", warning: "", error: "Lexicon sync failed." });
+      console.error("[LEXICON_SEARCH] Error:", e);
+      setServerSearchResults([]);
+      setMsg({ success: "", warning: "", error: "Search failed. Please try again." });
     }
   }, []);
 
@@ -93,15 +95,52 @@ export default function App() {
     if (authState.token) loadFiles(authState.token);
   }, [authState.token, loadFiles]);
 
-  // DEBOUNCED SMART SEARCH (Strict Content Mode + Filters)
+  const validateSearchQuery = (query) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return { valid: false, message: "Please enter a keyword or short phrase to search inside your files." };
+    }
+
+    const words = trimmed.split(/\s+/);
+    if (words.length > 5) {
+      return { valid: false, message: "Use 1 to 5 words only. Try a shorter phrase from the content you remember." };
+    }
+
+    return { valid: true, message: "" };
+  };
+
+  // OPTIMIZED: Dynamic content-based search with real-time debounce
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (activeNav === "files") {
-        loadFiles(authState.token, searchQuery, "content", filterType, filterDate);
-      } else {
-        setServerSearchResults([]);
+    // Clear search results when navigating away from files
+    if (activeNav !== "files") {
+      setServerSearchResults([]);
+      return;
+    }
+
+    const validation = validateSearchQuery(searchQuery);
+    if (!validation.valid) {
+      setServerSearchResults([]);
+      if (searchQuery.trim().length > 0) {
+        setMsg({ success: "", warning: "", error: validation.message });
       }
-    }, 600);
+      return;
+    }
+
+    const hasSearchCriteria = searchQuery.trim().length > 0;
+    if (!hasSearchCriteria) {
+      setServerSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (authState.token) {
+        setMsg({ success: "", warning: "", error: "" });
+        const searchMode = "content";
+        console.log(`[LEXICON_SEARCH] Triggering content search - Query: "${searchQuery}", Mode: ${searchMode}, Type: ${filterType}, Date: ${filterDate}`);
+        loadFiles(authState.token, searchQuery, searchMode, filterType, filterDate);
+      }
+    }, 300); // Reduced debounce for more responsive feel
+
     return () => clearTimeout(timer);
   }, [searchQuery, activeNav, filterType, filterDate, authState.token, loadFiles]);
 
@@ -113,6 +152,7 @@ export default function App() {
     let duplicateCount = 0;
     let errorCount = 0;
 
+    const scanStartTime = Date.now();
     const existingFileKeys = new Set(files.map(f => `${f.filename}-${f.size}`));
 
     for (const file of stagingFiles) {
@@ -126,24 +166,26 @@ export default function App() {
       }
 
       try {
-        // 2. Phase 1: Scanning (OCR Simulation for UI)
+        // 2. Phase 1: Scanning (content extraction simulation for UI)
         setFileStatuses(prev => ({ ...prev, [file.name]: 'scanning' }));
         await new Promise(r => setTimeout(r, 600));
 
         // 3. Phase 2: Indexing (API Call)
         setFileStatuses(prev => ({ ...prev, [file.name]: 'indexing' }));
         await uploadFile(authState.token, file);
-        
+
         // 4. Phase 3: Success
         setFileStatuses(prev => ({ ...prev, [file.name]: 'success' }));
         uploadedCount++;
+        existingFileKeys.add(currentKey); // Prevent duplicate in the same batch
       } catch (err) {
         console.error(`Error indexing ${file.name}:`, err);
-        const isDuplicate = err.message?.includes("already been indexed") || err.response?.status === 409;
-        
+        const isDuplicate = err.message?.toLowerCase().includes("already") || err.response?.status === 409;
+
         if (isDuplicate) {
           setFileStatuses(prev => ({ ...prev, [file.name]: 'duplicate' }));
           duplicateCount++;
+          existingFileKeys.add(currentKey); // Prevent duplicate in the same batch
         } else {
           setFileStatuses(prev => ({ ...prev, [file.name]: 'error' }));
           errorCount++;
@@ -151,10 +193,12 @@ export default function App() {
       }
     }
 
+    const timeTakenSec = ((Date.now() - scanStartTime) / 1000).toFixed(1);
+
     setMsg({
-      success: uploadedCount > 0 ? `Successfully indexed ${uploadedCount} files.` : "",
-      error: errorCount > 0 ? `Failed to index ${errorCount} files.` : "",
-      warning: duplicateCount > 0 ? `Skipped ${duplicateCount} duplicates.` : ""
+      success: uploadedCount > 0 ? `Successfully indexed ${uploadedCount} file(s) in ${timeTakenSec}s.` : "",
+      error: errorCount > 0 ? `Failed to index ${errorCount} file(s).` : "",
+      warning: duplicateCount > 0 ? `Skipped ${duplicateCount} duplicate(s).` : ""
     });
 
     // Cleanup staging after a delay
@@ -166,7 +210,7 @@ export default function App() {
       }));
       setFileStatuses({});
     }, 3000);
-    
+
     await loadFiles(authState.token);
     setIsScanning(false);
   };
@@ -189,13 +233,14 @@ export default function App() {
 
   // OPTIMIZED: Deep Search Result Memoization (STRICT SEPARATION)
   const searchResults = useMemo(() => {
-    // Mode 1: Smart Content Search (Server-side results ONLY)
-    if (activeNav === "files") return serverSearchResults;
-    
-    // Mode 2: Dashboard Search (Local Filename filtering ONLY)
+    if (activeNav === "files") {
+      const hasSearchCriteria = searchQuery.trim().length > 0;
+      return hasSearchCriteria ? serverSearchResults : [];
+    }
+
     if (searchQuery.length < 3) return [];
     return files.filter(f => f.filename?.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [files, searchQuery, serverSearchResults, activeNav]);
+  }, [files, searchQuery, serverSearchResults, activeNav, filterType, filterDate]);
 
   const categorizedFiles = useMemo(() => {
     if (!selectedCategory) return [];
@@ -232,15 +277,7 @@ export default function App() {
               <Chip label="CORE ENGINE ACTIVE" size="small" color="success" variant="outlined" sx={{ fontWeight: 700, fontSize: '0.65rem' }} />
             </Stack>
 
-            <TextField
-              size="small"
-                            placeholder="Search Files..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              sx={{ width: 400, bgcolor: "#F1F5F9", borderRadius: 2, "& fieldset": { border: "none" } }}
-              InputProps={{ startAdornment: <InputAdornment position="start"><Search fontSize="small" /></InputAdornment> }}
 
-            />
 
             <Stack direction="row" spacing={2} alignItems="center">
               <MuiTooltip title="History"><IconButton size="small"><History /></IconButton></MuiTooltip>
@@ -264,7 +301,7 @@ export default function App() {
             <List>
               {[
                 { id: "dashboard", label: t.dashboard, icon: <DashboardIcon /> },
-                { id: "files", label: "FILES", icon: <ManageSearch /> },
+                { id: "files", label: "SMART SEARCH", icon: <ManageSearch /> },
                 { id: "upload", label: t.upload, icon: <CloudUpload /> },
                 { id: "settings", label: t.settings, icon: <Settings /> }
               ].map((item) => (
@@ -301,7 +338,7 @@ export default function App() {
                   <Stack spacing={3}>
                     <QuickActions onAction={(a) => {
                       if (a === 'upload') setActiveNav('upload');
-                      if (a === 'search') setActiveNav('content-search');
+                      if (a === 'search') setActiveNav('files');
                       if (a === 'settings') setActiveNav('settings');
                       if (a === 'share') setIsShareOpen(true);
                     }} t={t} />
@@ -313,8 +350,8 @@ export default function App() {
               {/* Middle Row: Category Cards */}
               <Box mb={5}>
                 <Typography variant="h6" fontWeight={800} mb={3} sx={{ opacity: 0.8 }}>{t.categories}</Typography>
-                <CategoryCards 
-                  stats={{ images: stats.images, docs: stats.docs, music: stats.music, totalFiles: files.length }} 
+                <CategoryCards
+                  stats={{ images: stats.images, docs: stats.docs, music: stats.music, totalFiles: files.length }}
                   onCategoryClick={(cat) => setSelectedCategory(selectedCategory === cat ? null : cat)}
                   t={t}
                 />
@@ -325,14 +362,14 @@ export default function App() {
                 <Paper sx={{ p: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid #0061FF33', mb: 5, bgcolor: '#FFFFFF', boxShadow: '0 20px 40px rgba(0,97,255,0.05)' }} elevation={0}>
                   <Box p={3} borderBottom="1px solid #E2E8F0" display="flex" justifyContent="space-between" alignItems="center" bgcolor="rgba(0, 97, 255, 0.02)">
                     <Stack direction="row" spacing={2} alignItems="center">
-                        <Box sx={{ width: 8, height: 24, bgcolor: 'primary.main', borderRadius: 2 }} />
-                        <Typography variant="h6" fontWeight={900} color="primary" letterSpacing={1}>
-                          EXPLORING {selectedCategory.toUpperCase()}S
-                        </Typography>
+                      <Box sx={{ width: 8, height: 24, bgcolor: 'primary.main', borderRadius: 2 }} />
+                      <Typography variant="h6" fontWeight={900} color="primary" letterSpacing={1}>
+                        EXPLORING {selectedCategory.toUpperCase()}S
+                      </Typography>
                     </Stack>
-                    <Button 
+                    <Button
                       variant="outlined"
-                      size="small" 
+                      size="small"
                       onClick={() => setSelectedCategory(null)}
                       sx={{ borderRadius: 3, fontWeight: 700, px: 3 }}
                     >
@@ -352,14 +389,14 @@ export default function App() {
                   <Paper sx={{ p: 4, borderRadius: 6, border: '1px solid #E2E8F0', bgcolor: '#F8FAFC' }} elevation={0}>
                     <Typography variant="h6" fontWeight={800} mb={2}>{t.insights}</Typography>
                     <Stack spacing={2}>
-                        <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #E2E8F0' }}>
-                            <Typography variant="caption" color="text.secondary">{t.syncStatus}</Typography>
-                            <Typography variant="body2" fontWeight={700} color="success.main">{t.optimized}</Typography>
-                        </Box>
-                        <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #E2E8F0' }}>
-                            <Typography variant="caption" color="text.secondary">{t.lastIndexed}</Typography>
-                            <Typography variant="body2" fontWeight={700}>{t.justNow}</Typography>
-                        </Box>
+                      <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #E2E8F0' }}>
+                        <Typography variant="caption" color="text.secondary">{t.syncStatus}</Typography>
+                        <Typography variant="body2" fontWeight={700} color="success.main">{t.optimized}</Typography>
+                      </Box>
+                      <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #E2E8F0' }}>
+                        <Typography variant="caption" color="text.secondary">{t.lastIndexed}</Typography>
+                        <Typography variant="body2" fontWeight={700}>{t.justNow}</Typography>
+                      </Box>
                     </Stack>
                   </Paper>
                   <SecurityCard t={t} />
@@ -375,7 +412,7 @@ export default function App() {
                   <Paper sx={{ p: 6, border: '2px dashed #0061FF', bgcolor: 'rgba(0, 97, 255, 0.02)', borderRadius: 8, textAlign: 'center' }} elevation={0}>
                     <FileUpload sx={{ fontSize: 80, color: 'primary.main', mb: 2 }} />
                     <Typography variant="h4" mb={1} fontWeight={900}>Lexicon Indexer</Typography>
-                    <Typography color="text.secondary" mb={4}>Staging area for OCR and Content Extraction</Typography>
+                    <Typography color="text.secondary" mb={4}>Staging area for content extraction</Typography>
 
                     <Stack direction="row" spacing={2} justifyContent="center">
                       <Button variant="contained" component="label" startIcon={<CloudUpload />} sx={{ borderRadius: 3, px: 4 }}>
@@ -392,18 +429,18 @@ export default function App() {
 
                 {stagingFiles.length > 0 && (
                   <Grid item xs={12} md={6}>
-                    <StagingArea 
-                        stagingFiles={stagingFiles} 
-                        setStagingFiles={setStagingFiles} 
-                        fileStatuses={fileStatuses}
+                    <StagingArea
+                      stagingFiles={stagingFiles}
+                      setStagingFiles={setStagingFiles}
+                      fileStatuses={fileStatuses}
                     />
                     <Box mt={3}>
-                        <Button
-                            fullWidth variant="contained" size="large" onClick={handleScanAndIndex} disabled={isScanning}
-                            sx={{ py: 2, borderRadius: 4, fontSize: '1.1rem', fontWeight: 900, boxShadow: '0 8px 16px rgba(0,97,255,0.2)' }}
-                        >
-                            {isScanning ? "REVERSE INDEXING IN PROGRESS..." : "COMMIT TO STORAGE"}
-                        </Button>
+                      <Button
+                        fullWidth variant="contained" size="large" onClick={handleScanAndIndex} disabled={isScanning}
+                        sx={{ py: 2, borderRadius: 4, fontSize: '1.1rem', fontWeight: 900, boxShadow: '0 8px 16px rgba(0,97,255,0.2)' }}
+                      >
+                        {isScanning ? "REVERSE INDEXING IN PROGRESS..." : "COMMIT TO STORAGE"}
+                      </Button>
                     </Box>
                   </Grid>
                 )}
@@ -413,7 +450,7 @@ export default function App() {
 
           {activeNav === "files" && (
             <Box>
-              <FileSearchHeader 
+              <FileSearchHeader
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 filterType={filterType}
@@ -428,7 +465,7 @@ export default function App() {
                   setFilterDate("all");
                 }}
               />
-              
+
               <Box mt={2}>
                 {searchResults.length > 0 ? (
                   viewMode === 'grid' ? (
@@ -457,9 +494,9 @@ export default function App() {
                   <Box textAlign="center" py={15} sx={{ opacity: 0.3 }}>
                     <ManageSearch sx={{ fontSize: 100 }} />
                     <Typography variant="h6">
-                      {searchQuery.length > 0 || filterType !== 'all' || filterDate !== 'all' 
-                        ? "No matches found for your criteria." 
-                        : "Start typing to search inside your documents."}
+                      {searchQuery.length > 0
+                        ? "No documents match that phrase. Try a shorter keyword or a different phrase."
+                        : "Enter a remembered word or short phrase (1 to 5 words) to search inside your files."}
                     </Typography>
                   </Box>
                 )}
@@ -468,10 +505,11 @@ export default function App() {
           )}
 
           {activeNav === "settings" && (
-            <SettingsPage 
-                language={language} 
-                setLanguage={setLanguage} 
-                startGuide={() => { setActiveNav('dashboard'); setTimeout(() => setGuideStep(0), 500); }} 
+            <SettingsPage
+              language={language}
+              setLanguage={setLanguage}
+              token={authState.token}
+              startGuide={() => { setActiveNav('dashboard'); setTimeout(() => setGuideStep(0), 500); }}
             />
           )}
         </Box>
@@ -481,16 +519,16 @@ export default function App() {
       <AnimatePresence>
         {guideStep >= 0 && (
           <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, bgcolor: 'rgba(0,0,0,0.8)', zIndex: 9999, pointerEvents: 'auto' }}>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ 
-                opacity: 1, 
+              animate={{
+                opacity: 1,
                 scale: 1,
                 top: [
-                    '30%', '25%', '25%', '60%', '5%'
+                  '30%', '25%', '25%', '60%', '5%'
                 ][guideStep],
                 left: [
-                    '5%', '35%', '85%', '40%', '50%'
+                  '5%', '35%', '85%', '40%', '50%'
                 ][guideStep]
               }}
               transition={{ type: 'spring', damping: 15 }}
@@ -500,10 +538,10 @@ export default function App() {
                 <Stack spacing={2.5}>
                   <Stack direction="row" spacing={1.5} alignItems="center">
                     <Box sx={{ bgcolor: 'primary.main', color: 'white', p: 0.5, borderRadius: 1.5, display: 'flex' }}>
-                        <NearMe fontSize="small" />
+                      <NearMe fontSize="small" />
                     </Box>
                     <Typography variant="h6" fontWeight={900}>
-                        {[t.mainMenu, t.storageHub, "Actions", t.categories, t.search][guideStep]}
+                      {[t.mainMenu, t.storageHub, "Actions", t.categories, t.search][guideStep]}
                     </Typography>
                   </Stack>
                   <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
@@ -512,12 +550,12 @@ export default function App() {
                       "Monitor your neural storage and cloud capacity here.",
                       "Quickly access common tasks and data breakdowns.",
                       "Deep dive into your files by their neural category.",
-                      "Search inside documents using our advanced OCR engine."
+                      "Search inside documents using our advanced content search engine."
                     ][guideStep]}
                   </Typography>
-                  <Button 
-                    variant="contained" 
-                    fullWidth 
+                  <Button
+                    variant="contained"
+                    fullWidth
                     onClick={() => guideStep < 4 ? setGuideStep(guideStep + 1) : setGuideStep(-1)}
                     endIcon={<ArrowForward />}
                     sx={{ borderRadius: 3, py: 1.2, fontWeight: 800 }}
@@ -526,8 +564,8 @@ export default function App() {
                   </Button>
                 </Stack>
               </Paper>
-              <motion.div 
-                animate={{ y: [0, -15, 0] }} 
+              <motion.div
+                animate={{ y: [0, -15, 0] }}
                 transition={{ repeat: Infinity, duration: 2 }}
                 style={{ position: 'absolute', bottom: -60, left: '50%', transform: 'translateX(-50%)' }}
               >
@@ -538,10 +576,10 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <ShareDialog 
-        open={isShareOpen} 
-        onClose={() => setIsShareOpen(false)} 
-        files={files} 
+      <ShareDialog
+        open={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+        files={files}
       />
 
       <Snackbar open={!!msg.success} autoHideDuration={4000} onClose={() => setMsg({ ...msg, success: "" })}>

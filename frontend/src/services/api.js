@@ -1,6 +1,6 @@
 // services/api.js
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5500";
 
 const TOKEN_KEY = "sfm_token";
 const USER_KEY = "sfm_user";
@@ -153,5 +153,36 @@ export async function deleteFileMetadata(token, id) {
     method: "DELETE",
     headers: authHeaders(token)
   });
+  return parseResponse(response);
+}
+
+export async function deleteAllFileMetadata(token) {
+  const response = await fetch(`${API_BASE_URL}/api/files/all`, {
+    method: "DELETE",
+    headers: authHeaders(token)
+  });
+  return parseResponse(response);
+}
+
+// --- Search Services ---
+
+/**
+ * Searches files by filename or extracted content.
+ * @param {string} token - Auth token
+ * @param {string} query - The search term
+ * @param {string} type - 'filename' or 'content'
+ */
+export async function searchFiles(token, query, type = 'filename') {
+  if (!token) throw new Error("No authentication token provided");
+
+  const params = new URLSearchParams();
+  params.set("q", query);
+  params.set("type", type); // backend uses this to toggle content search
+
+  const response = await fetch(`${API_BASE_URL}/api/files/search?${params.toString()}`, {
+    method: "GET",
+    headers: authHeaders(token)
+  });
+
   return parseResponse(response);
 }

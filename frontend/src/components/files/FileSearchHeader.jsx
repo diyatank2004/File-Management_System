@@ -1,27 +1,27 @@
 import React from 'react';
-import { 
-    Box, TextField, InputAdornment, Select, MenuItem, 
-    FormControl, IconButton, Stack, Typography 
+import {
+    Box, TextField, InputAdornment, Select, MenuItem,
+    FormControl, IconButton, Stack, Typography
 } from '@mui/material';
-import { 
-    Search, FilterList, CalendarToday, 
-    GridView, ViewList, Close 
+import {
+    Search, FilterList, CalendarToday,
+    GridView, ViewList, Close
 } from '@mui/icons-material';
 
-export default function FileSearchHeader({ 
-    searchQuery, setSearchQuery, 
-    filterType, setFilterType, 
-    filterDate, setFilterDate, 
+export default function FileSearchHeader({
+    searchQuery, setSearchQuery,
+    filterType, setFilterType,
+    filterDate, setFilterDate,
     viewMode, setViewMode,
     onClear
 }) {
     return (
-        <Box 
-            sx={{ 
-                mb: 4, 
-                display: 'flex', 
+        <Box
+            sx={{
+                mb: 4,
+                display: 'flex',
                 flexDirection: { xs: 'column', md: 'row' },
-                alignItems: 'center', 
+                alignItems: 'center',
                 gap: 2,
                 p: 2,
                 bgcolor: 'white',
@@ -33,10 +33,10 @@ export default function FileSearchHeader({
             {/* Search Input */}
             <TextField
                 fullWidth
-                placeholder="Search inside files (OCR)..."
+                placeholder="Enter a remembered word or short phrase (1 to 5 words)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                sx={{ 
+                sx={{
                     flex: 1,
                     '& .MuiOutlinedInput-root': {
                         borderRadius: 50,
@@ -68,8 +68,8 @@ export default function FileSearchHeader({
                         value={filterType}
                         onChange={(e) => setFilterType(e.target.value)}
                         displayEmpty
-                        sx={{ 
-                            borderRadius: 3, 
+                        sx={{
+                            borderRadius: 3,
                             bgcolor: 'white',
                             height: 40,
                             fontWeight: 700,
@@ -89,8 +89,8 @@ export default function FileSearchHeader({
                         value={filterDate}
                         onChange={(e) => setFilterDate(e.target.value)}
                         displayEmpty
-                        sx={{ 
-                            borderRadius: 3, 
+                        sx={{
+                            borderRadius: 3,
                             bgcolor: 'white',
                             height: 40,
                             fontWeight: 700,
@@ -105,20 +105,20 @@ export default function FileSearchHeader({
                 </FormControl>
 
                 {/* View Mode Toggle */}
-                <Stack 
-                    direction="row" 
-                    spacing={0.5} 
-                    sx={{ 
-                        bgcolor: '#F1F5F9', 
-                        p: 0.5, 
+                <Stack
+                    direction="row"
+                    spacing={0.5}
+                    sx={{
+                        bgcolor: '#F1F5F9',
+                        p: 0.5,
                         borderRadius: 3,
                         border: '1px solid #E2E8F0'
                     }}
                 >
-                    <IconButton 
-                        size="small" 
+                    <IconButton
+                        size="small"
                         onClick={() => setViewMode('grid')}
-                        sx={{ 
+                        sx={{
                             borderRadius: 2,
                             bgcolor: viewMode === 'grid' ? 'white' : 'transparent',
                             boxShadow: viewMode === 'grid' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
@@ -127,10 +127,10 @@ export default function FileSearchHeader({
                     >
                         <GridView fontSize="small" />
                     </IconButton>
-                    <IconButton 
-                        size="small" 
+                    <IconButton
+                        size="small"
                         onClick={() => setViewMode('list')}
-                        sx={{ 
+                        sx={{
                             borderRadius: 2,
                             bgcolor: viewMode === 'list' ? 'white' : 'transparent',
                             boxShadow: viewMode === 'list' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',

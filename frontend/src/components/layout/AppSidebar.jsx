@@ -2,13 +2,14 @@ import React from "react";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import FolderOpenOutlinedIcon from "@mui/icons-material/FolderOpenOutlined";
+import ManageSearchOutlinedIcon from "@mui/icons-material/ManageSearchOutlined";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 
 const ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: <DashboardOutlinedIcon fontSize="small" /> },
-  { key: "files", label: "Files", icon: <FolderOpenOutlinedIcon fontSize="small" /> },
+  { key: "files", label: "SMART SEARCH", icon: <ManageSearchOutlinedIcon fontSize="small" /> },
   { key: "upload", label: "Upload", icon: <CloudUploadOutlinedIcon fontSize="small" /> }
 ];
 

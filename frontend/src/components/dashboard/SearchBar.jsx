@@ -1,29 +1,47 @@
 import React, { useState } from 'react';
-import { TextField, IconButton, InputAdornment, List, ListItem, ListItemText, Paper, Typography, CircularProgress } from '@mui/material';
+import {
+  TextField,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Typography,
+  CircularProgress
+} from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { searchFiles as apiSearch } from '../../services/api';
 
 /**
- * SearchBar component used in the Dashboard.
+ * Updated SearchBar component
  * Props:
- *   label: string – displayed above the input (e.g. "Search Files" or "Smart Content Based Search").
+ *   label: string – displayed above the input.
  *   searchType: 'filename' | 'content' – determines the backend search mode.
  *   token: auth token for API calls.
+ *   onSearchResults: function – callback to send (results, query) to the parent.
  */
-export default function SearchBar({ label, searchType = 'filename', token }) {
+export default function SearchBar({ label, searchType = 'filename', token, onSearchResults }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState([]);
 
   const handleSearch = async () => {
-    if (!query.trim()) return;
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
+
     setLoading(true);
     try {
-      const data = await apiSearch(token, query.trim(), searchType);
-      setResults(data.results || []);
+      // Execute the API call
+      const data = await apiSearch(token, trimmedQuery, searchType);
+
+      // Lift the state up to the parent (ModernStorageHub)
+      // Passing trimmedQuery is essential for the yellow highlighting in the Card
+      if (onSearchResults) {
+        onSearchResults(data.results || [], trimmedQuery);
+      }
     } catch (err) {
       console.error('Search error:', err);
-      setResults([]);
+      // Clear results on error so the UI stays consistent
+      if (onSearchResults) {
+        onSearchResults([], '');
+      }
     } finally {
       setLoading(false);
     }
@@ -34,7 +52,15 @@ export default function SearchBar({ label, searchType = 'filename', token }) {
   };
 
   return (
-    <Paper sx={{ p: 3, mb: 4, borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} elevation={0}>
+    <Paper
+      sx={{
+        p: 3,
+        mb: 4,
+        borderRadius: 4,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      elevation={0}
+    >
       <Typography variant="h6" gutterBottom fontWeight={700}>
         {label}
       </Typography>
@@ -48,25 +74,28 @@ export default function SearchBar({ label, searchType = 'filename', token }) {
         InputProps={{
           endAdornment: (
             <InputAdornment position="end">
-              <IconButton onClick={handleSearch} disabled={loading} aria-label="search">
-                {loading ? <CircularProgress size={20} /> : <SearchIcon />}
+              <IconButton
+                onClick={handleSearch}
+                disabled={loading}
+                aria-label="search"
+                color="primary"
+              >
+                {loading ? <CircularProgress size={24} /> : <SearchIcon />}
               </IconButton>
             </InputAdornment>
           ),
         }}
+        sx={{
+          '& .MuiOutlinedInput-root': {
+            borderRadius: 3
+          }
+        }}
       />
-      {results.length > 0 && (
-        <List sx={{ mt: 2, maxHeight: 200, overflow: 'auto' }}>
-          {results.map((file) => (
-            <ListItem key={file.id} divider>
-              <ListItemText
-                primary={file.filename}
-                secondary={`Type: ${file.fileType || 'unknown'} • Size: ${file.size} bytes`}
-              />
-            </ListItem>
-          ))}
-        </List>
-      )}
+      {/* 
+          Internal List removed. 
+          Results are now handled by ModernStorageHub.jsx 
+          using the SearchResultCard.jsx component.
+      */}
     </Paper>
   );
 }

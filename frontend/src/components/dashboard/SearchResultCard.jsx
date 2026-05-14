@@ -1,8 +1,8 @@
 import React from 'react';
 import { Paper, Box, Typography, Stack, Chip, IconButton, Tooltip } from '@mui/material';
-import { 
-    Description, Image, MusicNote, InsertDriveFile, 
-    MoreVert, DeleteOutline, FileDownload 
+import {
+    Description, Image, MusicNote, InsertDriveFile,
+    MoreVert, DeleteOutline, FileDownload
 } from '@mui/icons-material';
 
 export default function SearchResultCard({ file, query = "", onDelete }) {
@@ -20,22 +20,22 @@ export default function SearchResultCard({ file, query = "", onDelete }) {
         const parts = text.split(new RegExp(`(${q})`, 'gi'));
         return (
             <>
-                {parts.map((part, i) => 
-                    part.toLowerCase() === q.toLowerCase() ? 
-                    <Box key={i} component="span" sx={{ bgcolor: '#FDE047', px: 0.2, borderRadius: 0.5, fontWeight: 700, color: 'black' }}>{part}</Box> : 
-                    part
+                {parts.map((part, i) =>
+                    part.toLowerCase() === q.toLowerCase() ?
+                        <Box key={i} component="span" sx={{ bgcolor: '#FDE047', px: 0.2, borderRadius: 0.5, fontWeight: 700, color: 'black' }}>{part}</Box> :
+                        part
                 )}
             </>
         );
     };
 
     return (
-        <Paper 
+        <Paper
             elevation={0}
-            sx={{ 
-                p: 2.5, 
-                borderRadius: 4, 
-                border: '1px solid #E2E8F0', 
+            sx={{
+                p: 2.5,
+                borderRadius: 4,
+                border: '1px solid #E2E8F0',
                 bgcolor: 'white',
                 height: '100%',
                 display: 'flex',
@@ -51,10 +51,10 @@ export default function SearchResultCard({ file, query = "", onDelete }) {
         >
             {/* Top Row: Icon and Menu */}
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2}>
-                <Box sx={{ 
-                    bgcolor: '#F8FAFC', 
-                    p: 1.5, 
-                    borderRadius: 3, 
+                <Box sx={{
+                    bgcolor: '#F8FAFC',
+                    p: 1.5,
+                    borderRadius: 3,
                     display: 'flex',
                     border: '1px solid #F1F5F9'
                 }}>
@@ -76,20 +76,20 @@ export default function SearchResultCard({ file, query = "", onDelete }) {
             </Box>
 
             {/* Snippet Area */}
-            <Box sx={{ 
-                flex: 1, 
-                mb: 2, 
+            <Box sx={{
+                flex: 1,
+                mb: 2,
                 overflow: 'hidden',
                 display: '-webkit-box',
                 WebkitLineClamp: 4,
                 WebkitBoxOrient: 'vertical',
                 minHeight: '80px'
             }}>
-                <Typography 
-                    variant="body2" 
-                    sx={{ 
-                        color: '#475569', 
-                        lineHeight: 1.5, 
+                <Typography
+                    variant="body2"
+                    sx={{
+                        color: '#475569',
+                        lineHeight: 1.5,
                         fontSize: '0.85rem',
                         fontStyle: file.snippet ? 'normal' : 'italic'
                     }}
@@ -97,35 +97,35 @@ export default function SearchResultCard({ file, query = "", onDelete }) {
                     {file.snippet ? (
                         highlightMatch(file.snippet, query)
                     ) : (
-                        "No direct content match found in the OCR-extracted text."
+                        "No direct content match found in the extracted text."
                     )}
                 </Typography>
             </Box>
 
             {/* Footer */}
             <Stack direction="row" justifyContent="space-between" alignItems="center" mt="auto" pt={2} borderTop="1px solid #F1F5F9">
-                <Chip 
-                    label={file.fileType === 'pdf' ? 'pdf' : file.fileType} 
-                    size="small" 
-                    sx={{ 
-                        height: 24, 
-                        fontSize: '0.65rem', 
-                        fontWeight: 900, 
+                <Chip
+                    label={file.fileType === 'pdf' ? 'pdf' : file.fileType}
+                    size="small"
+                    sx={{
+                        height: 24,
+                        fontSize: '0.65rem',
+                        fontWeight: 900,
                         textTransform: 'uppercase',
                         bgcolor: '#F1F5F9',
                         color: '#64748B',
                         borderRadius: 1.5
-                    }} 
+                    }}
                 />
-                
+
                 <Stack direction="row" spacing={1} alignItems="center">
                     <Typography variant="caption" fontWeight={700} color="text.secondary">
                         {(file.size / 1024).toFixed(1)} KB
                     </Typography>
                     <Tooltip title="Delete">
-                        <IconButton 
-                            size="small" 
-                            color="error" 
+                        <IconButton
+                            size="small"
+                            color="error"
                             onClick={() => onDelete(file._id)}
                             sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}
                         >

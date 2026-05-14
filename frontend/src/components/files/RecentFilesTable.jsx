@@ -12,7 +12,7 @@ export default function RecentFilesTable({ files }) {
                         <TableCell sx={{ fontWeight: 700 }}>Name file</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Last Edit</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Size</TableCell>
-                        {hasSnippets && <TableCell sx={{ fontWeight: 700 }}>Content Snippet (OCR)</TableCell>}
+                        {hasSnippets && <TableCell sx={{ fontWeight: 700 }}>Content Snippet</TableCell>}
                     </TableRow>
                 </TableHead>
                 <TableBody>
@@ -24,13 +24,13 @@ export default function RecentFilesTable({ files }) {
                                 <TableCell>{(file.size / 1024 / 1024).toFixed(2)} MB</TableCell>
                                 {hasSnippets && (
                                     <TableCell sx={{ maxWidth: 300 }}>
-                                        <Typography 
-                                            variant="caption" 
-                                            sx={{ 
-                                                display: 'block', 
-                                                p: 1, 
-                                                bgcolor: '#F0F9FF', 
-                                                borderRadius: 2, 
+                                        <Typography
+                                            variant="caption"
+                                            sx={{
+                                                display: 'block',
+                                                p: 1,
+                                                bgcolor: '#F0F9FF',
+                                                borderRadius: 2,
                                                 border: '1px solid #BAE6FD',
                                                 fontStyle: 'italic'
                                             }}

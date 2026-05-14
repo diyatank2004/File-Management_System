@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import morgan from "morgan";
+import net from "net";
 import { connectDatabase } from "./config/db.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorMiddleware.js";
 import authRoutes from "./routes/authRoutes.js";
@@ -11,8 +12,29 @@ import fileRoutes from "./routes/fileRoutes.js";
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const DEFAULT_PORT = parseInt(process.env.PORT, 10) || 5500;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+
+async function getAvailablePort(startPort) {
+  let port = Number.isInteger(startPort) ? startPort : 5500;
+  while (port < 65535) {
+    const available = await new Promise((resolve) => {
+      const tester = net.createServer()
+        .once("error", (err) => {
+          tester.close();
+          resolve(false);
+        })
+        .once("listening", () => {
+          tester.close();
+          resolve(true);
+        })
+        .listen(port, "0.0.0.0");
+    });
+    if (available) return port;
+    port += 1;
+  }
+  throw new Error("No available ports found between 5500 and 65535.");
+}
 
 // Rate limiting for security
 const apiLimiter = rateLimit({
@@ -49,14 +71,22 @@ app.use("/api/files", fileRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Database connection and server start
-connectDatabase()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+async function startServer() {
+  try {
+    const port = await getAvailablePort(DEFAULT_PORT);
+    await connectDatabase();
+    const server = app.listen(port, () => {
+      console.log(`Server running on http://localhost:${port}`);
     });
-  })
-  .catch((error) => {
-    console.error("Database connection failed:", error.message);
+
+    server.on("error", (error) => {
+      console.error("Server error:", error);
+      process.exit(1);
+    });
+  } catch (error) {
+    console.error("Startup failed:", error.message);
     process.exit(1);
-  });
+  }
+}
+
+startServer();
