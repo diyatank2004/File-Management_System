@@ -84,16 +84,18 @@ export async function getFiles(token, query = "", mode = "both", type = "all", d
   return parseResponse(response);
 }
 
-export async function uploadFile(token, file) {
+export const uploadFile = async (token, file, relativePath = "") => {
   const formData = new FormData();
-  formData.append("file", file);
-  const response = await fetch(`${API_BASE_URL}/api/files/upload`, {
-    method: "POST",
-    headers: authHeaders(token, true),
+  formData.append('file', file);
+  formData.append('relativePath', relativePath); // Important for Folder Upload
+
+  const response = await fetch(`${API_URL}/files/upload`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
     body: formData
   });
-  return parseResponse(response);
-}
+  return response.json();
+};
 
 export async function searchFiles(token, query, type = 'content') {
   const params = new URLSearchParams({ q: query, mode: type });
