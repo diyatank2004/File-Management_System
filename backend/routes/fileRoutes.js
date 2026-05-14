@@ -6,30 +6,35 @@ import {
 	deleteFileMetadata,
 	deleteAllFileMetadata
 } from '../controllers/fileController.js';
-
-// CHANGE THIS LINE: Import 'protect' instead of 'authMiddleware'
 import { protect } from '../middleware/authMiddleware.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const multer = require('multer');
 
+// Configure multer for memory storage
 const storage = multer.memoryStorage();
-const upload = multer({ 
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+const upload = multer({
+	storage,
+	limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit [cite: 277]
 });
 
 const router = Router();
 
-// Use 'protect' here
+// Apply protection middleware to all routes [cite: 278]
 router.use(protect);
 
+// Standard File Retrieval
 router.get("/", getFiles);
+
+// FIX: Added Search Route explicitly for the frontend's searchFiles() call
+router.get("/search", getFiles);
+
 router.get("/:id", getFileById);
 
-// Ensure 'upload' is imported or removed as we discussed before
-router.post('/upload', protect, upload.single('file'), uploadAndIndex);
+// Upload and Indexing
+router.post('/upload', upload.single('file'), uploadAndIndex);
 
+// Metadata Management
 router.delete("/all", deleteAllFileMetadata);
 router.delete("/:id", deleteFileMetadata);
 

@@ -7,7 +7,9 @@ import SearchResultCard from './SearchResultCard';
 export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDeleteFile }) {
     const [searchResults, setSearchResults] = useState([]);
     const [activeQuery, setActiveQuery] = useState("");
-    const STORAGE_LIMIT = 5 * 1024 * 1024 * 1024; // 5 GB limit
+
+    // 5 GB limit for visualization
+    const STORAGE_LIMIT = 5 * 1024 * 1024 * 1024;
     const usedPercentage = Math.min((totalSize / STORAGE_LIMIT) * 100, 100);
 
     const formatSize = (bytes) => {
@@ -27,7 +29,6 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
 
     return (
         <Stack spacing={4}>
-            {/* Storage Stats Card */}
             <Paper
                 elevation={0}
                 sx={{
@@ -101,7 +102,7 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
             </Paper>
 
             <SearchBar
-                label="Filename Search"
+                label="Dashboard Quick Search"
                 searchType="filename"
                 token={token}
                 onSearchResults={handleSearchResults}
@@ -113,7 +114,11 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
                     <Grid container spacing={3}>
                         {searchResults.map((file) => (
                             <Grid item xs={12} sm={6} md={4} key={file._id || file.id}>
-                                <SearchResultCard file={file} query={activeQuery} onDelete={onDeleteFile} />
+                                <SearchResultCard
+                                    file={file}
+                                    query={activeQuery}
+                                    onDelete={onDeleteFile}
+                                />
                             </Grid>
                         ))}
                     </Grid>

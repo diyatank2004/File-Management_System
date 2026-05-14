@@ -332,7 +332,21 @@ export default function App() {
               {/* Top Row: Modern Storage Hub & Quick Actions */}
               <Grid container spacing={4} mb={4}>
                 <Grid item xs={12} lg={8}>
-                  <ModernStorageHub totalSize={stats.totalSize} t={t} />
+                  <ModernStorageHub
+                    totalSize={stats.totalSize}
+                    t={t}
+                    token={authState.token}
+                    onDeleteFile={async (id) => {
+                      try {
+                        await deleteFileMetadata(authState.token, id);
+                        // This line updates the dashboard stats immediately after deletion
+                        setFiles(prev => prev.filter(f => f._id !== id));
+                        setMsg({ success: "File deleted successfully", error: "", warning: "" });
+                      } catch (e) {
+                        setMsg({ success: "", error: "Failed to delete file", warning: "" });
+                      }
+                    }}
+                  />
                 </Grid>
                 <Grid item xs={12} lg={4}>
                   <Stack spacing={3}>
