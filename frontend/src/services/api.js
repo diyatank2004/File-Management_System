@@ -9,14 +9,16 @@ async function parseResponse(response) {
   try {
     data = text ? JSON.parse(text) : {};
   } catch (e) { throw new Error("Invalid server response"); }
-
   if (!response.ok) {
     if (response.status === 401) {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
       window.location.reload();
     }
-    throw new Error(data.message || "Request failed");
+
+    const error = new Error(data.message || "Request failed");
+    error.status = response.status;
+    throw error; // <-- Make sure this says 'error', NOT 'query'
   }
   return data;
 }
@@ -26,9 +28,6 @@ function authHeaders(token, isFormData = false) {
     "Authorization": `Bearer ${token}`,
     "Accept": "application/json"
   };
-  if (!isFormData) {
-    headers["Content-Type"] = "application/json";
-  }
   return headers;
 }
 
@@ -87,14 +86,14 @@ export async function getFiles(token, query = "", mode = "both", type = "all", d
 export const uploadFile = async (token, file, relativePath = "") => {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('relativePath', relativePath); // Important for Folder Upload
+  formData.append('relativePath', relativePath); // For folder support
 
-  const response = await fetch(`${API_URL}/files/upload`, {
+  const response = await fetch(`${API_BASE_URL}/api/files/upload`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers: { 'Authorization': `Bearer ${token}` }, // NO Content-Type here
     body: formData
   });
-  return response.json();
+  return parseResponse(response);
 };
 
 export async function searchFiles(token, query, type = 'content') {

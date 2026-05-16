@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Typography, Stack, LinearProgress, Paper, Grid } from '@mui/material';
 import { Storage, CloudDone, WarningAmber } from '@mui/icons-material';
-import SearchBar from './SearchBar';
-import SearchResultCard from './SearchResultCard';
 
 export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDeleteFile }) {
     const [searchResults, setSearchResults] = useState([]);
@@ -22,10 +20,7 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
 
     const remainingSize = Math.max(STORAGE_LIMIT - totalSize, 0);
 
-    const handleSearchResults = (results, query) => {
-        setSearchResults(results);
-        setActiveQuery(query);
-    };
+
 
     return (
         <Stack spacing={4}>
@@ -85,45 +80,8 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
                             }}
                         />
                     </Box>
-
-                    <Stack direction="row" spacing={3}>
-                        <Box sx={{ flex: 1, p: 2, borderRadius: 4, bgcolor: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                            <CloudDone sx={{ fontSize: 20, mb: 1, color: '#10B981' }} />
-                            <Typography variant="body2" fontWeight={700}>{t.sysStatus}</Typography>
-                            <Typography variant="caption" sx={{ opacity: 0.6 }}>{t.optimized}</Typography>
-                        </Box>
-                        <Box sx={{ flex: 1, p: 2, borderRadius: 4, bgcolor: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                            <WarningAmber sx={{ fontSize: 20, mb: 1, color: '#F59E0B' }} />
-                            <Typography variant="body2" fontWeight={700}>{t.dataHealth}</Typography>
-                            <Typography variant="caption" sx={{ opacity: 0.6 }}>{t.noFragments}</Typography>
-                        </Box>
-                    </Stack>
                 </Stack>
             </Paper>
-
-            <SearchBar
-                label="Dashboard Quick Search"
-                searchType="filename"
-                token={token}
-                onSearchResults={handleSearchResults}
-            />
-
-            {searchResults.length > 0 && (
-                <Box>
-                    <Typography variant="h6" fontWeight={700} mb={3}>Search Results</Typography>
-                    <Grid container spacing={3}>
-                        {searchResults.map((file) => (
-                            <Grid item xs={12} sm={6} md={4} key={file._id || file.id}>
-                                <SearchResultCard
-                                    file={file}
-                                    query={activeQuery}
-                                    onDelete={onDeleteFile}
-                                />
-                            </Grid>
-                        ))}
-                    </Grid>
-                </Box>
-            )}
         </Stack>
     );
 }
