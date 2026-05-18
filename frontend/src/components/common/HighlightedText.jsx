@@ -1,42 +1,27 @@
-import React from "react";
+// frontend/src/components/common/HighlightedText.jsx
+import React from 'react';
 
-function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+const HighlightedText = ({ text, search }) => {
+  if (!search) return <span>{text}</span>;
 
-export default function HighlightedText({ text = "", query = "", component: Component = "span", sx }) {
-  const safeText = String(text);
-  const trimmedQuery = String(query).trim();
-
-  if (!safeText) {
-    return null;
-  }
-
-  if (!trimmedQuery) {
-    return <Component style={sx}>{safeText}</Component>;
-  }
-
-  const parts = safeText.split(new RegExp(`(${escapeRegex(trimmedQuery)})`, "gi"));
+  // Escape special regex characters safely
+  const escapedSearch = search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const regex = new RegExp(`(${escapSearch})`, 'gi');
+  const parts = text.split(regex);
 
   return (
-    <Component style={sx}>
+    <span>
       {parts.map((part, index) =>
-        part.toLowerCase() === trimmedQuery.toLowerCase() ? (
-          <mark
-            key={`${part}-${index}`}
-            style={{
-              backgroundColor: "rgba(255, 208, 0, 0.35)",
-              color: "inherit",
-              borderRadius: 4,
-              padding: "0 2px"
-            }}
-          >
+        regex.test(part) ? (
+          <mark key={index} style={{ backgroundColor: '#fef08a', color: '#000', padding: '0 2px', borderRadius: '2px' }}>
             {part}
           </mark>
         ) : (
-          <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>
+          part
         )
       )}
-    </Component>
+    </span>
   );
-}
+};
+
+export default HighlightedText;

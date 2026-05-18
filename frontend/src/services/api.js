@@ -18,17 +18,16 @@ async function parseResponse(response) {
 
     const error = new Error(data.message || "Request failed");
     error.status = response.status;
-    throw error; // <-- Make sure this says 'error', NOT 'query'
+    throw error;
   }
   return data;
 }
 
 function authHeaders(token, isFormData = false) {
-  const headers = {
+  return {
     "Authorization": `Bearer ${token}`,
     "Accept": "application/json"
   };
-  return headers;
 }
 
 export function getStoredToken() {
@@ -69,12 +68,14 @@ export async function signup(payload) {
   return parseResponse(response);
 }
 
-export async function getFiles(token, query = "", mode = "both", type = "all", date = "all") {
+export async function getFiles(token, query = "", mode = "both", type = "all", dateRange = "all") {
   const params = new URLSearchParams();
-  if (query.trim()) params.set("q", query.trim());
+  if (query.trim()) params.set("query", query.trim());
   params.set("mode", mode);
   if (type !== "all") params.set("type", type);
-  if (date !== "all") params.set("date", date);
+
+  // FIX: Parameter key changed from "date" to "dateRange" to match backend destructuring
+  if (dateRange !== "all") params.set("dateRange", dateRange);
 
   const response = await fetch(`${API_BASE_URL}/api/files?${params.toString()}`, {
     method: "GET",
@@ -83,22 +84,26 @@ export async function getFiles(token, query = "", mode = "both", type = "all", d
   return parseResponse(response);
 }
 
-export const uploadFile = async (token, file, relativePath = "") => {
+export const uploadFile = async (token, file, relativePath = "", extractedText = "") => {
   const formData = new FormData();
-  formData.append('file', file);
-  formData.append('relativePath', relativePath); // For folder support
+
+  // 🌟 ALWAYS append text body fields BEFORE appending the file stream
+  formData.append('relativePath', relativePath);
+  formData.append('extractedText', extractedText);
+  formData.append('file', file); // File goes last!
 
   const response = await fetch(`${API_BASE_URL}/api/files/upload`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}` }, // NO Content-Type here
+    headers: { 'Authorization': `Bearer ${token}` },
     body: formData
   });
   return parseResponse(response);
 };
 
 export async function searchFiles(token, query, type = 'content') {
-  const params = new URLSearchParams({ q: query, mode: type });
-  const response = await fetch(`${API_BASE_URL}/api/files/search?${params.toString()}`, {
+  // FIX: Key structures synchronized uniformly here too
+  const params = new URLSearchParams({ query: query, mode: type });
+  const response = await fetch(`${API_BASE_URL}/api/files?${params.toString()}`, {
     method: "GET",
     headers: authHeaders(token)
   });

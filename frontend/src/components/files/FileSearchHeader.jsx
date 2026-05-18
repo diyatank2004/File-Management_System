@@ -1,146 +1,82 @@
-import React from 'react';
+import React from "react";
 import {
-    Box, TextField, InputAdornment, Select, MenuItem,
-    FormControl, IconButton, Stack, Typography
-} from '@mui/material';
-import {
-    Search, FilterList, CalendarToday,
-    GridView, ViewList, Close
-} from '@mui/icons-material';
+    Paper, TextField, InputAdornment, IconButton, Stack,
+    MenuItem, Select, FormControl, InputLabel, Button
+} from "@mui/material";
+import { Search, Clear, FilterList } from "@mui/icons-material";
 
 export default function FileSearchHeader({
-    searchQuery, setSearchQuery,
-    filterType, setFilterType,
-    filterDate, setFilterDate,
-    viewMode, setViewMode,
+    searchQuery,
+    setSearchQuery,
+    filterType,
+    setFilterType,
+    filterDate,
+    setFilterDate,
     onClear
 }) {
     return (
-        <Box
-            sx={{
-                mb: 4,
-                display: 'flex',
-                flexDirection: { xs: 'column', md: 'row' },
-                alignItems: 'center',
-                gap: 2,
-                p: 2,
-                bgcolor: 'white',
-                borderRadius: 4,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-                border: '1px solid #E2E8F0'
-            }}
-        >
-            {/* Search Input */}
-            <TextField
-                fullWidth
-                placeholder="Enter a remembered word or short phrase (1 to 5 words)..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                sx={{
-                    flex: 1,
-                    '& .MuiOutlinedInput-root': {
-                        borderRadius: 50,
-                        bgcolor: '#F1F5F9',
-                        '& fieldset': { border: 'none' },
-                        height: 48
-                    }
-                }}
-                InputProps={{
-                    startAdornment: (
-                        <InputAdornment position="start">
-                            <Search sx={{ color: '#64748B', ml: 1 }} />
-                        </InputAdornment>
-                    ),
-                    endAdornment: searchQuery && (
-                        <InputAdornment position="end">
-                            <IconButton size="small" onClick={onClear}>
-                                <Close fontSize="small" />
-                            </IconButton>
-                        </InputAdornment>
-                    )
-                }}
-            />
+        <Paper sx={{ p: 3, borderRadius: 4, border: "1px solid #E2E8F0" }} elevation={0}>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="center">
 
-            <Stack direction="row" spacing={2} sx={{ width: { xs: '100%', md: 'auto' } }}>
-                {/* Type Filter */}
-                <FormControl size="small" sx={{ minWidth: 140 }}>
+                {/* Search Input Field */}
+                <TextField
+                    fullWidth
+                    variant="outlined"
+                    placeholder="Type a phrase or keyword to search inside your documents..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    InputProps={{
+                        startAdornment: (
+                            <InputAdornment position="start">
+                                <Search color="action" />
+                            </InputAdornment>
+                        ),
+                        endAdornment: searchQuery && (
+                            <InputAdornment position="end">
+                                <IconButton onClick={onClear} size="small">
+                                    <Clear />
+                                </IconButton>
+                            </InputAdornment>
+                        ),
+                    }}
+                    sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3 } }}
+                />
+
+                {/* Filter by File Type */}
+                <FormControl sx={{ minWidth: 160, width: { xs: "100%", md: "auto" } }}>
+                    <InputLabel id="type-select-label">File Type</InputLabel>
                     <Select
+                        labelId="type-select-label"
                         value={filterType}
+                        label="File Type"
                         onChange={(e) => setFilterType(e.target.value)}
-                        displayEmpty
-                        sx={{
-                            borderRadius: 3,
-                            bgcolor: 'white',
-                            height: 40,
-                            fontWeight: 700,
-                            fontSize: '0.85rem'
-                        }}
+                        sx={{ borderRadius: 3 }}
                     >
                         <MenuItem value="all">All Types</MenuItem>
                         <MenuItem value="image">Images</MenuItem>
-                        <MenuItem value="pdf">PDF Documents</MenuItem>
+                        <MenuItem value="doc">Documents (PDF/Docx/Txt)</MenuItem>
                         <MenuItem value="music">Audio Files</MenuItem>
                     </Select>
                 </FormControl>
 
-                {/* Date Filter */}
-                <FormControl size="small" sx={{ minWidth: 140 }}>
+                {/* Filter by Date */}
+                <FormControl sx={{ minWidth: 160, width: { xs: "100%", md: "auto" } }}>
+                    <InputLabel id="date-select-label">Timeframe</InputLabel>
                     <Select
+                        labelId="date-select-label"
                         value={filterDate}
+                        label="Timeframe"
                         onChange={(e) => setFilterDate(e.target.value)}
-                        displayEmpty
-                        sx={{
-                            borderRadius: 3,
-                            bgcolor: 'white',
-                            height: 40,
-                            fontWeight: 700,
-                            fontSize: '0.85rem'
-                        }}
+                        sx={{ borderRadius: 3 }}
                     >
-                        <MenuItem value="all">All Time</MenuItem>
-                        <MenuItem value="today">Today</MenuItem>
-                        <MenuItem value="week">Last 7 Days</MenuItem>
-                        <MenuItem value="month">Last 30 Days</MenuItem>
+                        <MenuItem value="all">Anytime</MenuItem>
+                        <MenuItem value="today">Past 24 Hours</MenuItem>
+                        <MenuItem value="week">Past Week</MenuItem>
+                        <MenuItem value="month">Past Month</MenuItem>
                     </Select>
                 </FormControl>
 
-                {/* View Mode Toggle */}
-                <Stack
-                    direction="row"
-                    spacing={0.5}
-                    sx={{
-                        bgcolor: '#F1F5F9',
-                        p: 0.5,
-                        borderRadius: 3,
-                        border: '1px solid #E2E8F0'
-                    }}
-                >
-                    <IconButton
-                        size="small"
-                        onClick={() => setViewMode('grid')}
-                        sx={{
-                            borderRadius: 2,
-                            bgcolor: viewMode === 'grid' ? 'white' : 'transparent',
-                            boxShadow: viewMode === 'grid' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
-                            color: viewMode === 'grid' ? 'primary.main' : 'text.secondary'
-                        }}
-                    >
-                        <GridView fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                        size="small"
-                        onClick={() => setViewMode('list')}
-                        sx={{
-                            borderRadius: 2,
-                            bgcolor: viewMode === 'list' ? 'white' : 'transparent',
-                            boxShadow: viewMode === 'list' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
-                            color: viewMode === 'list' ? 'primary.main' : 'text.secondary'
-                        }}
-                    >
-                        <ViewList fontSize="small" />
-                    </IconButton>
-                </Stack>
             </Stack>
-        </Box>
+        </Paper>
     );
 }
