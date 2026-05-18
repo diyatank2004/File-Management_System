@@ -1,8 +1,9 @@
-import React from "react";
-import { Paper, Box, Stack, Typography, IconButton, Chip } from "@mui/material";
+import React, { useState } from "react";
+import { Paper, Box, Stack, Typography, IconButton, Chip, Button, CircularProgress } from "@mui/material";
 import {
-    Description, Image, Audiotrack, DeleteOutline, MoreVert
+    Description, Image, Audiotrack, DeleteOutline, MoreVert, AutoAwesome
 } from "@mui/icons-material";
+import { summarizeTextLocally } from "../../services/aiSummarizer";
 
 // Utility helper to safely escape string items for dynamic RegExp parsing
 function escapeRegex(text = "") {
@@ -10,6 +11,10 @@ function escapeRegex(text = "") {
 }
 
 export default function SearchResultCard({ file, query, onDelete }) {
+    const [summary, setSummary] = useState("");
+    const [loadingSummary, setLoadingSummary] = useState(false);
+    const [summaryError, setSummaryError] = useState("");
+
     // Helper to get the correct icon based on mimetype
     const getFileIcon = (mime) => {
         const type = mime?.toLowerCase() || "";
@@ -29,6 +34,27 @@ export default function SearchResultCard({ file, query, onDelete }) {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
     };
 
+    // Extract the raw text for AI processing
+    const rawContentText = file.content || file.extractedText || file.snippet || "";
+
+    // Trigger local client-side AI summarization
+    const handleTriggerSummary = async () => {
+        if (!rawContentText.trim()) return;
+        setLoadingSummary(true);
+        setSummaryError("");
+        setSummary("");
+
+        try {
+            await summarizeTextLocally(rawContentText, (streamedChunk) => {
+                setSummary(streamedChunk);
+            });
+        } catch (err) {
+            setSummaryError("Local AI engine was unable to initialize on this hardware profile.");
+        } finally {
+            setLoadingSummary(false);
+        }
+    };
+
     return (
         <Paper
             sx={{
@@ -39,7 +65,7 @@ export default function SearchResultCard({ file, query, onDelete }) {
                 height: "100%",
                 display: "flex",
                 flexDirection: "column",
-                justify: "space-between",
+                justifyContent: "space-between",
                 position: "relative",
                 boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.02)"
             }}
@@ -93,28 +119,22 @@ export default function SearchResultCard({ file, query, onDelete }) {
                             color: "#64748B",
                             lineHeight: 1.6,
                             fontSize: "0.75rem",
-                            // FIX: Checking against both fallback variables returned by your backend layout
-                            fontStyle: (!file.snippet && !file.content && !file.extractedText) ? "italic" : "normal"
+                            fontStyle: !rawContentText ? "italic" : "normal"
                         }}
                     >
                         {(() => {
-                            // FIX: Prioritizes the context-sliced snippet returned by the backend first, then falls back
-                            const rawText = file.snippet || file.content || file.extractedText || "";
-
-                            // Fallback system response if zero text text exists inside database document
-                            if (!rawText) {
+                            if (!rawContentText) {
                                 return "Document indexed successfully. Content preview is processing or unavailable.";
                             }
 
-                            // If there is text context but no keyword query input, safely chop it to fit the layout
                             if (!query || !query.trim()) {
-                                return rawText.length > 160 ? rawText.substring(0, 160) + "..." : rawText;
+                                return rawContentText.length > 160 ? rawContentText.substring(0, 160) + "..." : rawContentText;
                             }
 
                             const cleanQuery = query.trim();
 
                             try {
-                                const parts = rawText.split(new RegExp(`(${escapeRegex(cleanQuery)})`, "gi"));
+                                const parts = rawContentText.split(new RegExp(`(${escapeRegex(cleanQuery)})`, "gi"));
                                 return parts.map((part, index) =>
                                     part.toLowerCase() === cleanQuery.toLowerCase() ? (
                                         <span
@@ -134,11 +154,66 @@ export default function SearchResultCard({ file, query, onDelete }) {
                                     )
                                 );
                             } catch (e) {
-                                return rawText.length > 160 ? rawText.substring(0, 160) + "..." : rawText;
+                                return rawContentText.length > 160 ? rawContentText.substring(0, 160) + "..." : rawContentText;
                             }
                         })()}
                     </Typography>
                 </Box>
+
+                {/* local privacy-first ai summarizer engine widget */}
+                {rawContentText && (
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            p: 2,
+                            borderRadius: 3,
+                            mb: 2,
+                            bgcolor: 'rgba(0, 97, 255, 0.01)',
+                            borderStyle: 'dashed',
+                            borderColor: '#0061FF33'
+                        }}
+                    >
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                            <Stack direction="row" spacing={0.5} alignItems="center">
+                                <AutoAwesome color="primary" sx={{ fontSize: 16 }} />
+                                <Typography variant="caption" fontWeight={800} color="primary" sx={{ letterSpacing: '0.03em' }}>
+                                    LOCAL AI
+                                </Typography>
+                            </Stack>
+
+                            {!summary && (
+                                <Button
+                                    variant="outlined"
+                                    size="small"
+                                    startIcon={loadingSummary ? <CircularProgress size={10} color="inherit" /> : <AutoAwesome sx={{ fontSize: 12 }} />}
+                                    onClick={handleTriggerSummary}
+                                    disabled={loadingSummary}
+                                    sx={{ borderRadius: 2, fontSize: '0.65rem', py: 0.2, px: 1, textTransform: 'none', fontWeight: 700 }}
+                                >
+                                    {loadingSummary ? "Analyzing..." : "Summarize"}
+                                </Button>
+                            )}
+                        </Stack>
+
+                        {summaryError && (
+                            <Typography variant="caption" color="error" display="block" sx={{ mt: 1, fontSize: '0.65rem' }}>
+                                {summaryError}
+                            </Typography>
+                        )}
+
+                        {summary && (
+                            <Box sx={{ mt: 1.5, p: 1, bgcolor: '#FFFFFF', borderRadius: 2, border: '1px solid #E2E8F0', maxHeight: 120, overflowY: 'auto' }}>
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ whiteSpace: 'pre-line', lineHeight: 1.5, fontSize: '0.7rem', display: 'block' }}
+                                >
+                                    {summary}
+                                </Typography>
+                            </Box>
+                        )}
+                    </Paper>
+                )}
             </Box>
 
             {/* Footer bar containing file info pill and delete actions */}

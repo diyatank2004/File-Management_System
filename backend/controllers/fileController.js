@@ -122,15 +122,19 @@ export async function getFiles(req, res, next) {
       }
     }
 
-    // --- NATIVE INDEX SAFE FILTER BLOCK ---
+    // --- NATIVE INDEX SAFE FILTER BLOCK (FIXED CRASH) ---
     let useRegexFallback = false;
-    const safeQuery = escapeRegex(query.trim());
-    const regex = new RegExp(safeQuery, "i");
+    let regex = null;
 
+    // ONLY attempt string operations if query explicitly exists!
     if (query && query.trim() !== "") {
+      const cleanQuery = query.trim();
+      const safeQuery = escapeRegex(cleanQuery);
+      regex = new RegExp(safeQuery, "i");
+
       if (mode === "content") {
         // Step 1: Query natively using ONLY the text index to avoid planner conflicts
-        filter.$text = { $search: query.trim() };
+        filter.$text = { $search: cleanQuery };
         useRegexFallback = true;
       } else if (mode === "filename") {
         filter.$or = [{ filename: regex }, { relativePath: regex }];
@@ -139,7 +143,7 @@ export async function getFiles(req, res, next) {
         filter.$or = [
           { filename: regex },
           { relativePath: regex },
-          { $text: { $search: query.trim() } }
+          { $text: { $search: cleanQuery } }
         ];
         useRegexFallback = true;
       }
@@ -147,14 +151,14 @@ export async function getFiles(req, res, next) {
 
     console.log("[LEXICON_DB_DEBUG] Executing Filter Object:", JSON.stringify(filter, null, 2));
 
-    let files;
-    // Step 2: Try the text index execution query plan safely
-    files = await File.find(filter, "filename fileType size createdAt lastModified content relativePath mimetype _id").sort({ createdAt: -1 }).lean();
+    let files = await File.find(filter, "filename fileType size createdAt lastModified content relativePath mimetype _id").sort({ createdAt: -1 }).lean();
 
-    // Step 3: FALLBACK SAFETY NET
-    // If the full-text search yielded 0 results, but the user typed a partial word, run a regex backup scan
-    if (useRegexFallback && files.length === 0 && query.trim().length > 1) {
-      console.log(`[LEXICON_SEARCH_FALLBACK] No token matches found for "${query.trim()}". Trying fallback substring scan...`);
+    // ==========================================
+    // STEP 3: FALLBACK SAFETY NET (CRASH FIXED)
+    // ==========================================
+    if (useRegexFallback && files.length === 0 && query && query.trim().length > 1 && regex) {
+      const cleanQuery = query.trim();
+      console.log(`[LEXICON_SEARCH_FALLBACK] No token matches found for "${cleanQuery}". Trying fallback substring scan...`);
 
       const fallbackFilter = { uploadedBy: filter.uploadedBy };
 
@@ -170,6 +174,7 @@ export async function getFiles(req, res, next) {
 
       files = await File.find(fallbackFilter, "filename fileType size createdAt lastModified content relativePath mimetype _id").sort({ createdAt: -1 }).lean();
     }
+
     const normalizedFiles = files.map((file) => {
       const item = { ...file };
 
@@ -178,11 +183,6 @@ export async function getFiles(req, res, next) {
       } else {
         item.snippet = "";
       }
-
-      // For the split-pane preview, we might need the full content
-      // but in list view we'll use the snippet. Don't delete content immediately.
-      // The frontend will use snippet for list, content for preview.
-
       return item;
     });
 
@@ -196,9 +196,6 @@ export async function getFiles(req, res, next) {
 }
 
 /**
- * SCAN & UPLOAD - Instant Binary OCR Indexing
- */
-/**
  * SCAN & UPLOAD - Lean Client-Driven Indexing (Zero Backend Processing Load)
  */
 export async function uploadAndIndex(req, res, next) {
@@ -210,9 +207,7 @@ export async function uploadAndIndex(req, res, next) {
   const relativePath = req.body.relativePath || "";
   const clientExtractedText = req.body.extractedText || "";
 
-  // 🔍 ADD THIS DEBUG LOG HERE:
   console.log(`[LEXICON_UPLOAD_DEBUG] Received text length from client: ${clientExtractedText.length} chars.`);
-  console.log(`[LEXICON_UPLOAD_DEBUG] First 100 characters: "${clientExtractedText.slice(0, 100)}"`);
   const fileHash = crypto.createHash("sha256").update(buffer).digest("hex");
 
   try {
@@ -247,13 +242,12 @@ export async function uploadAndIndex(req, res, next) {
     const isPdf = mimetype === "application/pdf" || originalname.toLowerCase().endsWith(".pdf");
     const isImage = mimetype.startsWith("image/");
 
-    // No processing overhead! Just save what the user sent
     const file = await File.create({
       filename: originalname,
       fileType: isPdf ? "pdf" : (isImage ? "image" : (mimetype.startsWith("audio") ? "music" : "other")),
       mimetype,
       size,
-      content: clientExtractedText.replace(/\s+/g, ' ').trim(), // Clean spaces out of string
+      content: clientExtractedText.replace(/\s+/g, ' ').trim(),
       relativePath: relativePath.startsWith('/') ? relativePath : `/${relativePath}`,
       uploadedBy: req.user.id,
       fileHash: fileHash
