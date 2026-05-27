@@ -11,9 +11,15 @@ export default function QuickActions({ onAction, t = {} }) {
     ];
 
     return (
-        <Paper sx={{ p: 3, mb: 0, borderRadius: 6, border: '1px solid #E2E8F0', bgcolor: 'white' }} elevation={0}>
+        <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 0, borderRadius: 3, border: '1px solid #E2E8F0', bgcolor: 'white' }} elevation={0}>
             <Typography variant="h6" fontWeight={800} mb={2}>{t.quickActions}</Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap">
+            <Box
+                sx={{
+                    display: 'grid',
+                    gap: 1,
+                    gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' }
+                }}
+            >
                 {actions.map((act) => (
                     <Button
                         key={act.label}
@@ -26,9 +32,9 @@ export default function QuickActions({ onAction, t = {} }) {
                             fontWeight: 600,
                             borderColor: '#E2E8F0',
                             color: '#475569',
-                            flexGrow: 1,
-                            minWidth: '100px',
-                            mb: 1,
+                            width: '100%',
+                            minWidth: 0,
+                            py: 1,
                             '&:hover': {
                                 bgcolor: act.color,
                                 color: 'white',
@@ -41,7 +47,7 @@ export default function QuickActions({ onAction, t = {} }) {
                         {act.label}
                     </Button>
                 ))}
-            </Stack>
+            </Box>
         </Paper>
     );
 }

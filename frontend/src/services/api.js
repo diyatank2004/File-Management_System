@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5500";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 const TOKEN_KEY = "sfm_token";
 const USER_KEY = "sfm_user";
@@ -115,16 +115,5 @@ export async function deleteFileMetadata(token, id) {
     method: "DELETE",
     headers: authHeaders(token)
   });
-  return parseResponse(response);
-}
-
-export async function deleteAllFileMetadata(token) {
-  if (!token) throw new Error("No authentication token provided");
-
-  const response = await fetch(`${API_BASE_URL}/api/files/all`, {
-    method: "DELETE",
-    headers: authHeaders(token)
-  });
-
   return parseResponse(response);
 }

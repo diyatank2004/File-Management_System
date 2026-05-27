@@ -178,7 +178,7 @@ export default function AppNavbar({
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         transformOrigin={{ vertical: "top", horizontal: "right" }}
       >
-        <Box sx={{ px: 2, py: 1.2, maxWidth: 280 }}>
+        <Box sx={{ px: 2, py: 1.2, maxWidth: 100 }}>
           <Typography variant="subtitle2">{userName || "User"}</Typography>
           <Typography variant="body2" color="text.secondary" noWrap>
             {userEmail || "No email available"}

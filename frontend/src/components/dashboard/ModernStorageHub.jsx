@@ -6,8 +6,8 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
     const [searchResults, setSearchResults] = useState([]);
     const [activeQuery, setActiveQuery] = useState("");
 
-    // 5 GB limit for visualization
-    const STORAGE_LIMIT = 5 * 1024 * 1024 * 1024;
+    // 1 GB limit for visualization
+    const STORAGE_LIMIT = 1 * 1024 * 1024 * 1024;
     const usedPercentage = Math.min((totalSize / STORAGE_LIMIT) * 100, 100);
 
     const formatSize = (bytes) => {
@@ -27,8 +27,8 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
             <Paper
                 elevation={0}
                 sx={{
-                    p: 4,
-                    borderRadius: 6,
+                    p: { xs: 2, sm: 3, md: 4 },
+                    borderRadius: 3,
                     background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
                     color: 'white',
                     position: 'relative',
@@ -43,25 +43,25 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
                     zIndex: 0
                 }} />
 
-                <Stack spacing={4} sx={{ position: 'relative', zIndex: 1 }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Stack direction="row" spacing={2} alignItems="center">
+                <Stack spacing={3} sx={{ position: 'relative', zIndex: 1 }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={2}>
+                        <Stack direction="row" spacing={2} alignItems="center" sx={{ minWidth: 0 }}>
                             <Box sx={{ bgcolor: 'rgba(0, 97, 255, 0.2)', p: 1.5, borderRadius: 3 }}>
                                 <Storage sx={{ color: '#0061FF' }} />
                             </Box>
-                            <Box>
-                                <Typography variant="h6" fontWeight={800}>{t.storageHub}</Typography>
-                                <Typography variant="caption" sx={{ opacity: 0.6 }}>CLOUD ENGINE V2.6</Typography>
+                            <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="h6" fontWeight={800} noWrap>{t.storageHub}</Typography>
+                                <Typography variant="caption" sx={{ opacity: 0.6, display: 'block' }}>CLOUD ENGINE V2.6</Typography>
                             </Box>
                         </Stack>
-                        <Box sx={{ textAlign: 'right' }}>
+                        <Box sx={{ textAlign: { xs: 'left', sm: 'right' }, width: { xs: '100%', sm: 'auto' } }}>
                             <Typography variant="h4" fontWeight={900}>{usedPercentage.toFixed(1)}%</Typography>
                             <Typography variant="caption" sx={{ opacity: 0.6 }}>{t.used?.toUpperCase()}</Typography>
                         </Box>
                     </Stack>
 
                     <Box>
-                        <Stack direction="row" justifyContent="space-between" mb={1.5}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" mb={1.5} spacing={0.5}>
                             <Typography variant="body2" fontWeight={600}>{formatSize(totalSize)} {t.used}</Typography>
                             <Typography variant="body2" fontWeight={600} sx={{ opacity: 0.6 }}>{formatSize(remainingSize)} {t.available}</Typography>
                         </Stack>
@@ -70,10 +70,10 @@ export default function ModernStorageHub({ totalSize = 0, t = {}, token, onDelet
                             value={usedPercentage}
                             sx={{
                                 height: 12,
-                                borderRadius: 6,
+                                borderRadius: 3,
                                 bgcolor: 'rgba(255, 255, 255, 0.1)',
                                 '& .MuiLinearProgress-bar': {
-                                    borderRadius: 6,
+                                    borderRadius: 3,
                                     background: 'linear-gradient(90deg, #0061FF 0%, #60EFFF 100%)',
                                     boxShadow: '0 0 15px rgba(0, 97, 255, 0.5)'
                                 }

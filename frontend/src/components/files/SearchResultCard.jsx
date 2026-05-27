@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Paper, Box, Stack, Typography, IconButton, Chip, Button, CircularProgress } from "@mui/material";
 import {
-    Description, Image, Audiotrack, DeleteOutline, MoreVert, AutoAwesome
+    Description, Image, CodeOutlined, DeleteOutline, MoreVert, AutoAwesome
 } from "@mui/icons-material";
 import { summarizeTextLocally } from "../../services/aiSummarizer";
 
@@ -15,12 +15,12 @@ export default function SearchResultCard({ file, query, onDelete }) {
     const [loadingSummary, setLoadingSummary] = useState(false);
     const [summaryError, setSummaryError] = useState("");
 
-    // Helper to get the correct icon based on mimetype
-    const getFileIcon = (mime) => {
-        const type = mime?.toLowerCase() || "";
+    // Helper to get the correct icon based on normalized file type
+    const getFileIcon = () => {
+        const type = (file.fileType || file.type || file.mimetype || "").toLowerCase();
         if (type.includes("image")) return <Image color="primary" sx={{ fontSize: 28 }} />;
-        if (type.includes("audio") || type.includes("music") || type.includes("mp3")) {
-            return <Audiotrack color="warning" sx={{ fontSize: 28 }} />;
+        if (type.includes("code") || type.includes("javascript") || type.includes("typescript") || type.includes("json") || type.includes("xml") || type.includes("python")) {
+            return <CodeOutlined color="secondary" sx={{ fontSize: 28 }} />;
         }
         return <Description color="error" sx={{ fontSize: 28 }} />; // Default to doc icon
     };
@@ -75,7 +75,7 @@ export default function SearchResultCard({ file, query, onDelete }) {
                 {/* Top bar: Icon and options menu indicator */}
                 <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
                     <Box sx={{ p: 1, bgcolor: "rgba(0, 0, 0, 0.02)", borderRadius: 2.5, display: "flex" }}>
-                        {getFileIcon(file.mimetype)}
+                        {getFileIcon()}
                     </Box>
                     <IconButton size="small" disabled>
                         <MoreVert sx={{ fontSize: 18 }} />
@@ -219,7 +219,7 @@ export default function SearchResultCard({ file, query, onDelete }) {
             {/* Footer bar containing file info pill and delete actions */}
             <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Chip
-                    label={(file.mimetype?.split("/")[1] || file.fileType || "File").toUpperCase()}
+                    label={(file.fileType || file.mimetype?.split("/")[1] || "File").toUpperCase()}
                     size="small"
                     sx={{ fontWeight: 700, fontSize: "0.65rem", bgcolor: "#E2E8F0", color: "#475569" }}
                 />

@@ -1,26 +1,27 @@
 // frontend/src/components/common/HighlightedText.jsx
 import React from 'react';
 
-const HighlightedText = ({ text, search }) => {
-  if (!search) return <span>{text}</span>;
+const HighlightedText = ({ text = '', query, search, component: Component = 'span' }) => {
+  const q = query ?? search;
+  if (!q) return <Component>{text}</Component>;
 
-  // Escape special regex characters safely
-  const escapedSearch = search.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-  const regex = new RegExp(`(${escapSearch})`, 'gi');
-  const parts = text.split(regex);
+  const escaped = q.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'i');
+  const parts = String(text).split(regex);
+  const lowerQ = q.toLowerCase();
 
   return (
-    <span>
-      {parts.map((part, index) =>
-        regex.test(part) ? (
-          <mark key={index} style={{ backgroundColor: '#fef08a', color: '#000', padding: '0 2px', borderRadius: '2px' }}>
+    <Component>
+      {parts.map((part, idx) =>
+        part.toLowerCase().includes(lowerQ) ? (
+          <mark key={idx} style={{ backgroundColor: '#fef08a', color: '#000', padding: '0 2px', borderRadius: '2px' }}>
             {part}
           </mark>
         ) : (
-          part
+          <Component key={idx}>{part}</Component>
         )
       )}
-    </span>
+    </Component>
   );
 };
 

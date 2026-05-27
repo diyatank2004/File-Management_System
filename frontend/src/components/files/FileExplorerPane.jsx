@@ -20,8 +20,8 @@ import {
 import {
     InsertDriveFile,
     Image,
-    AudioFile,
     Description,
+    CodeOutlined,
 } from "@mui/icons-material";
 import FilePanePreview from "./FilePanePreview";
 
@@ -89,11 +89,12 @@ export default function FileExplorerPane({
     // Get appropriate file icon
     const getFileIcon = (file) => {
         const mimetype = file.mimetype?.toLowerCase() || "";
+        const fileType = (file.type || file.fileType || "").toLowerCase();
         if (mimetype.includes("image")) {
             return <Image sx={{ fontSize: 20, color: "#0061FF" }} />;
         }
-        if (mimetype.includes("audio") || mimetype.includes("music")) {
-            return <AudioFile sx={{ fontSize: 20, color: "#F59E0B" }} />;
+        if (fileType === "code" || /(?:javascript|typescript|json|xml|sql|python|x-python|html|css|shell|bash)/i.test(mimetype)) {
+            return <CodeOutlined sx={{ fontSize: 20, color: "#7C3AED" }} />;
         }
         return <Description sx={{ fontSize: 20, color: "#EF4444" }} />;
     };

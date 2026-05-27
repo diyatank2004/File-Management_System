@@ -3,12 +3,12 @@ import { ThemeProvider, createTheme } from "@mui/material/styles";
 import {
   Box, CssBaseline, Grid, Stack, Typography, Snackbar, Alert,
   Avatar, LinearProgress, IconButton, AppBar, TextField, Button,
-  Toolbar, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Paper,
-  InputAdornment, Tooltip as MuiTooltip, Chip
+  Toolbar, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Paper, Menu as MuiMenu, MenuItem, Divider,
+  InputAdornment, Tooltip as MuiTooltip, Chip, useMediaQuery
 } from "@mui/material";
 import {
-  Menu, Dashboard as DashboardIcon, CloudUpload, Logout, ManageSearch, Search, FileUpload,
-  Settings, History, InfoOutlined, WarningAmber
+  Menu as MenuIcon, Dashboard as DashboardIcon, CloudUpload, Logout, ManageSearch, Search, FileUpload,
+  Settings, InfoOutlined, WarningAmber
 } from "@mui/icons-material";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
@@ -18,10 +18,7 @@ import { getFiles, uploadFile, getStoredToken, getStoredUser, clearSession, dele
 // Local Dashboard Components
 import CategoryCards from "./components/dashboard/CategoryCards";
 import RecentFilesTable from "./components/files/RecentFilesTable";
-import StoragePanel from "./components/dashboard/StoragePanel";
 import ModernStorageHub from "./components/dashboard/ModernStorageHub";
-import StorageBreakdown from "./components/dashboard/StorageBreakdown";
-import SecurityCard from "./components/dashboard/SecurityCard";
 import QuickActions from "./components/dashboard/QuickActions";
 import ActivityFeed from "./components/dashboard/ActivityFeed";
 import StagingArea from "./components/upload/StagingArea";
@@ -36,11 +33,12 @@ import FileExplorerPane from "./components/files/FileExplorerPane";
 import { NearMe, ArrowForward, PlayCircleFilled } from "@mui/icons-material";
 import * as pdfjsLib from "pdfjs-dist";
 import Tesseract from "tesseract.js";
+import { classifyFileType, getExtension } from "./utils/fileHelpers";
 
 // Set up public un-throttled CDN worker mapping for PDF parsing in browser runtime context
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-const DRAWER_WIDTH = 280;
+const DRAWER_WIDTH = 250;
 
 const lexiconTheme = createTheme({
   palette: {
@@ -56,11 +54,118 @@ const lexiconTheme = createTheme({
   }
 });
 
+const CODE_EXTENSIONS = new Set([
+  "js", "jsx", "ts", "tsx", "py", "java", "c", "cpp", "cs", "go", "rs",
+  "sql", "html", "css", "json", "xml", "md", "yml", "yaml", "sh", "php",
+  "rb", "dart", "kt", "swift", "lua", "ini", "toml", "env", "conf"
+]);
+
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"]);
+const DOCUMENT_EXTENSIONS = new Set(["pdf", "doc", "docx", "txt", "md"]);
+const SPREADSHEET_EXTENSIONS = new Set(["xls", "xlsx", "csv"]);
+const PRESENTATION_EXTENSIONS = new Set(["ppt", "pptx"]);
+
+const getFileName = (file = {}) => (file.filename || file.name || "").toLowerCase();
+
+const isImageFile = (file) => {
+  const ext = getExtension(file.name || file.filename || "");
+  const name = getFileName(file);
+  const mime = (file.mimetype || file.type || "").toLowerCase();
+  return mime.startsWith("image/") || IMAGE_EXTENSIONS.has(ext) || /\.(png|jpe?g|gif|webp|bmp|tif|tiff|svg)$/i.test(name);
+};
+
+const isSpreadsheetFile = (file) => {
+  const ext = getExtension(file.name || file.filename || "");
+  const name = getFileName(file);
+  const mime = (file.mimetype || file.type || "").toLowerCase();
+  return SPREADSHEET_EXTENSIONS.has(ext) || /\.(xls|xlsx|csv)$/i.test(name) || /(?:excel|spreadsheet)/i.test(mime);
+};
+
+const isPresentationFile = (file) => {
+  const ext = getExtension(file.name || file.filename || "");
+  const name = getFileName(file);
+  const mime = (file.mimetype || file.type || "").toLowerCase();
+  return PRESENTATION_EXTENSIONS.has(ext) || /\.(ppt|pptx)$/i.test(name) || /(?:powerpoint|presentation)/i.test(mime);
+};
+
+const isDocumentFile = (file) => {
+  const ext = getExtension(file.name || file.filename || "");
+  const name = getFileName(file);
+  const mime = (file.mimetype || file.type || "").toLowerCase();
+  return DOCUMENT_EXTENSIONS.has(ext) || /\.(pdf|doc|docx|txt|md)$/i.test(name) || /(?:pdf|word|text|msword)/i.test(mime);
+};
+
+const isLikelyTextFile = (file) => {
+  const ext = getExtension(file.name);
+  return file.type.startsWith("text/") || CODE_EXTENSIONS.has(ext) || file.name.toLowerCase().endsWith(".txt");
+};
+
+const isLikelyImageFile = (file) => {
+  const ext = getExtension(file.name);
+  return file.type.startsWith("image/") || IMAGE_EXTENSIONS.has(ext);
+};
+
+const extractPdfText = async (file) => {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let combinedPagesText = "";
+  const maxPages = Math.min(pdf.numPages, 50);
+
+  for (let i = 1; i <= maxPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageStr = textContent.items.map(item => item.str).join(" ");
+    combinedPagesText += pageStr + " ";
+  }
+
+  const trimmedText = combinedPagesText.trim();
+
+  if (trimmedText.length >= 40) {
+    return trimmedText;
+  }
+
+  const ocrPages = Math.min(pdf.numPages, 8);
+  let ocrText = "";
+
+  for (let i = 1; i <= ocrPages; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      break;
+    }
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    await page.render({ canvasContext: context, viewport }).promise;
+    const { data: { text } } = await Tesseract.recognize(canvas, "eng+hin");
+    ocrText += `${text || ""} `;
+  }
+
+  return (ocrText.trim() || trimmedText);
+};
+
+const extractHandwrittenText = async (file) => {
+  const primaryResult = await Tesseract.recognize(file, "eng+hin");
+  const primaryText = primaryResult?.data?.text?.trim() || "";
+
+  if (primaryText.length >= 20) {
+    return primaryText;
+  }
+
+  const englishOnlyResult = await Tesseract.recognize(file, "eng");
+  return englishOnlyResult?.data?.text?.trim() || primaryText;
+};
+
 export default function App() {
   const [authState, setAuthState] = useState({ token: getStoredToken(), user: getStoredUser() });
   const [files, setFiles] = useState([]);
   const [activeNav, setActiveNav] = useState("dashboard");
   const [isDrawerOpen, setDrawerOpen] = useState(true);
+  const isDesktop = useMediaQuery("(min-width:1024px)");
   const [msg, setMsg] = useState({ error: "", success: "", warning: "" });
 
   const [stagingFiles, setStagingFiles] = useState([]);
@@ -70,6 +175,14 @@ export default function App() {
   const [language, setLanguage] = useState("English");
   const [guideStep, setGuideStep] = useState(-1);
   const [fileStatuses, setFileStatuses] = useState({});
+  const [profileAnchorEl, setProfileAnchorEl] = useState(null);
+  const sharedFileParams = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      id: params.get('share'),
+      name: params.get('name') || 'Shared file'
+    };
+  }, []);
 
   // Added Missing Search and Result States
   const [searchQuery, setSearchQuery] = useState("");
@@ -81,6 +194,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState("grid");
 
   const t = translations[language] || translations.English;
+  const profileMenuOpen = Boolean(profileAnchorEl);
 
   const loadFiles = useCallback(async (token, query = "", mode = "both", type = "all", date = "all") => {
     try {
@@ -96,10 +210,11 @@ export default function App() {
         // and extract the snippet text safely.
         const mappedResults = fetchedFiles.map((file) => ({
           ...file,
-          id: file._id,                                     // Map _id to id
-          name: file.filename,                             // Map filename to name
-          type: file.fileType,                             // Map fileType to type
-          snippet: file.snippet || file.search?.snippet || "Text preview unavailable..." // Safeguard snippet
+          id: file._id,
+          name: file.filename,
+          // Prefer filename-based classification to avoid server mislabels
+          type: classifyFileType(file.filename || file.name || ""),
+          snippet: file.snippet || file.search?.snippet || "Text preview unavailable..."
         }));
 
         setServerSearchResults(mappedResults);
@@ -109,7 +224,8 @@ export default function App() {
           ...file,
           id: file._id,
           name: file.filename,
-          type: file.fileType
+          // Use filename extension to classify type reliably
+          type: classifyFileType(file.filename || file.name || "")
         }));
         setFiles(mappedDashboardFiles);
       }
@@ -121,6 +237,10 @@ export default function App() {
   useEffect(() => {
     if (authState.token) loadFiles(authState.token);
   }, [authState.token, loadFiles]);
+
+  useEffect(() => {
+    setDrawerOpen(isDesktop);
+  }, [isDesktop]);
 
   const validateSearchQuery = (query) => {
     const trimmed = query.trim();
@@ -181,6 +301,13 @@ export default function App() {
 
     for (const file of stagingFiles) {
       const currentKey = `${file.name}-${file.size}`;
+      const isBlockedUpload = file.type?.startsWith("audio/") || /\.(mp3|wav|ogg|flac|m4a|aac|wma)$/i.test(file.name);
+
+      if (isBlockedUpload) {
+        setFileStatuses(prev => ({ ...prev, [file.name]: 'error' }));
+        errorCount++;
+        continue;
+      }
 
       if (existingFileKeys.has(currentKey)) {
         setFileStatuses(prev => ({ ...prev, [file.name]: 'duplicate' }));
@@ -191,34 +318,20 @@ export default function App() {
       try {
         setFileStatuses(prev => ({ ...prev, [file.name]: 'scanning' }));
 
-        // --- NEW BROWSER EXTRACTION LOGIC ---
         let localExtractedText = "";
         const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-        const isImage = file.type.startsWith("image/");
-        const isText = file.type.startsWith("text/") || file.name.toLowerCase().endsWith(".txt");
+        const isImage = isLikelyImageFile(file);
+        const isText = isLikelyTextFile(file);
 
         if (isPdf) {
           try {
-            const arrayBuffer = await file.arrayBuffer();
-            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-            let combinedPagesText = "";
-            // Read up to first 50 pages to prevent sandbox tabs freezing on ultra huge text files
-            const maxPages = Math.min(pdf.numPages, 50);
-            for (let i = 1; i <= maxPages; i++) {
-              const page = await pdf.getPage(i);
-              const textContent = await page.getTextContent();
-              const pageStr = textContent.items.map(item => item.str).join(" ");
-              combinedPagesText += pageStr + " ";
-            }
-            localExtractedText = combinedPagesText;
+            localExtractedText = await extractPdfText(file);
           } catch (pdfErr) {
             console.error("Local PDF reader fault:", pdfErr);
           }
         } else if (isImage) {
           try {
-            // Leverage Client Engine specs using standard layout workers
-            const { data: { text } } = await Tesseract.recognize(file, "eng+hin");
-            localExtractedText = text || "";
+            localExtractedText = await extractHandwrittenText(file);
           } catch (ocrErr) {
             console.error("Local Tesseract worker fault:", ocrErr);
           }
@@ -271,13 +384,17 @@ export default function App() {
   };
 
   const stats = useMemo(() => {
-    const s = { images: 0, docs: 0, music: 0, totalSize: 0 };
+    const s = { images: 0, docs: 0, code: 0, spreadsheets: 0, presentations: 0, totalSize: 0 };
     files.forEach(f => {
       s.totalSize += (f.size || 0);
-      const mime = f.mimetype?.toLowerCase() || "";
-      if (mime.includes("image")) s.images++;
-      else if (mime.includes("pdf") || mime.includes("doc") || mime.includes("text")) s.docs++;
-      else if (mime.includes("audio") || mime.includes("music") || mime.includes("mp3")) s.music++;
+      const type = classifyFileType(f.filename || f.name || "").toLowerCase();
+
+      if (isImageFile(f)) s.images++;
+      else if (type === "code") s.code++;
+      else if (isSpreadsheetFile(f)) s.spreadsheets++;
+      else if (isPresentationFile(f)) s.presentations++;
+      else if (isDocumentFile(f) || type === "pdf" || type === "document") s.docs++;
+      else s.docs++;
     });
     return s;
   }, [files]);
@@ -285,18 +402,98 @@ export default function App() {
   const categorizedFiles = useMemo(() => {
     if (!selectedCategory) return [];
     return files.filter(f => {
-      const mime = f.mimetype?.toLowerCase() || "";
-      if (selectedCategory === 'image') return mime.includes("image");
-      if (selectedCategory === 'doc') return mime.includes("pdf") || mime.includes("doc") || mime.includes("text");
-      if (selectedCategory === 'music') return mime.includes("audio") || mime.includes("music") || mime.includes("mp3");
+      const type = classifyFileType(f.filename || f.name || "").toLowerCase();
+      if (selectedCategory === 'image') return isImageFile(f);
+      if (selectedCategory === 'doc') return isDocumentFile(f) || type === "pdf" || type === "document";
+      if (selectedCategory === 'spreadsheet') return isSpreadsheetFile(f);
+      if (selectedCategory === 'presentation') return isPresentationFile(f);
+      if (selectedCategory === 'code') return type === "code";
       return false;
     });
   }, [files, selectedCategory]);
+
+  const handleDeleteFile = useCallback(async (id) => {
+    if (!authState.token || !id) {
+      setMsg({ success: "", error: "Unable to delete file", warning: "" });
+      return;
+    }
+
+    try {
+      await deleteFileMetadata(authState.token, id);
+      setFiles((prev) => prev.filter((file) => file._id !== id && file.id !== id));
+      setServerSearchResults((prev) => prev.filter((file) => file._id !== id && file.id !== id));
+      setMsg({ success: "File deleted successfully", error: "", warning: "" });
+    } catch (error) {
+      setMsg({ success: "", error: "Failed to delete file", warning: "" });
+    }
+  }, [authState.token]);
 
   const logout = () => {
     clearSession();
     setAuthState({ token: null, user: null });
   };
+
+  const openProfileMenu = (event) => {
+    setProfileAnchorEl(event.currentTarget);
+  };
+
+  const closeProfileMenu = () => {
+    setProfileAnchorEl(null);
+  };
+
+  if (sharedFileParams.id) {
+    return (
+      <ThemeProvider theme={lexiconTheme}>
+        <CssBaseline />
+        <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', px: 2, bgcolor: 'linear-gradient(180deg, #F8FAFC 0%, #E2E8F0 100%)' }}>
+          <Paper elevation={0} sx={{ width: '100%', maxWidth: 560, p: { xs: 3, sm: 4 }, borderRadius: 4, border: '1px solid #E2E8F0', boxShadow: '0 18px 48px rgba(15, 23, 42, 0.08)' }}>
+            <Stack spacing={2.5}>
+              <Box>
+                <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 800, letterSpacing: 1.4 }}>
+                  Shared link
+                </Typography>
+                <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: '1.5rem', sm: '2rem' }, lineHeight: 1.1 }}>
+                  {sharedFileParams.name}
+                </Typography>
+              </Box>
+
+              <Box sx={{ p: 2, borderRadius: 3, bgcolor: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                <Typography variant="body2" color="text.secondary">
+                  This link opens the file manager app on the current machine. If you are signed in, open the dashboard to view your files.
+                </Typography>
+              </Box>
+
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                <Button
+                  variant="contained"
+                  fullWidth
+                  onClick={() => {
+                    const url = new URL(window.location.href);
+                    url.search = '';
+                    url.hash = '';
+                    window.location.href = url.toString();
+                  }}
+                >
+                  Open app
+                </Button>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  onClick={() => navigator.clipboard.writeText(window.location.href)}
+                >
+                  Copy link
+                </Button>
+              </Stack>
+
+              <Typography variant="caption" color="text.secondary">
+                Share ID: {sharedFileParams.id}
+              </Typography>
+            </Stack>
+          </Paper>
+        </Box>
+      </ThemeProvider>
+    );
+  }
 
   if (!authState.token) {
     return <ThemeProvider theme={lexiconTheme}><Login setAuthState={setAuthState} /></ThemeProvider>;
@@ -309,25 +506,86 @@ export default function App() {
       {isScanning && <LinearProgress sx={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 3000, height: 4 }} color="secondary" />}
 
       <Box sx={{ display: "flex", minHeight: "100vh" }}>
-        <AppBar position="fixed" sx={{ bgcolor: "white", zIndex: (theme) => theme.zIndex.drawer + 1, borderBottom: "1px solid #E2E8F0" }} elevation={0}>
-          <Toolbar sx={{ justifyContent: "space-between" }}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <IconButton onClick={() => setDrawerOpen(!isDrawerOpen)} sx={{ color: 'primary.main' }}><Menu /></IconButton>
-              <Typography variant="h6" color="primary" fontWeight={900} letterSpacing={-1}>LEXICON 2.6</Typography>
-              <Chip label="CORE ENGINE ACTIVE" size="small" color="success" variant="outlined" sx={{ fontWeight: 700, fontSize: '0.65rem' }} />
+        <AppBar
+          position="fixed"
+          sx={{
+            bgcolor: "white",
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+            borderBottom: "1px solid #E2E8F0",
+            px: { xs: 0.5, sm: 1, md: 0 }
+          }}
+          elevation={0}
+        >
+          <Toolbar
+            sx={{
+              justifyContent: "space-between",
+              gap: 2,
+              py: { xs: 1, sm: 1.25 },
+              minHeight: { xs: 64, sm: 72 }
+            }}
+          >
+            <Stack direction="row" spacing={{ xs: 1, sm: 1.5 }} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+              {!isDesktop && (
+                <IconButton
+                  onClick={() => setDrawerOpen((open) => !open)}
+                  sx={{ color: 'primary.main', flexShrink: 0 }}
+                  aria-label="Open navigation menu"
+                >
+                  <MenuIcon />
+                </IconButton>
+              )}
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  variant="h6"
+                  color="primary"
+                  fontWeight={900}
+                  letterSpacing={-1}
+                  sx={{ fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' }, lineHeight: 1.1 }}
+                  noWrap
+                >
+                  LEXICON 2.6
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: { xs: 'none', sm: 'block' }, lineHeight: 1.2 }}
+                  noWrap
+                >
+                  File management dashboard
+                </Typography>
+              </Box>
+              <Chip
+                label="CORE ENGINE ACTIVE"
+                size="small"
+                color="success"
+                variant="outlined"
+                sx={{
+                  display: { xs: 'none', sm: 'inline-flex' },
+                  fontWeight: 700,
+                  fontSize: '0.65rem',
+                  flexShrink: 0
+                }}
+              />
             </Stack>
 
-            <Stack direction="row" spacing={2} alignItems="center">
-              <MuiTooltip title="History"><IconButton size="small"><History /></IconButton></MuiTooltip>
-              <Avatar sx={{ bgcolor: "primary.main", width: 32, height: 32, fontSize: '0.8rem' }}>{authState.user?.name?.[0] || "U"}</Avatar>
-              <IconButton onClick={logout} size="small" color="error"><Logout /></IconButton>
+            <Stack direction="row" spacing={{ xs: 0.5, sm: 1, md: 2 }} alignItems="center" sx={{ flexShrink: 0 }}>
+              <MuiTooltip title="Profile">
+                <IconButton size="small" sx={{ p: 0 }} onClick={openProfileMenu} aria-label="Open profile menu">
+                  <Avatar sx={{ bgcolor: "primary.main", width: { xs: 30, sm: 32 }, height: { xs: 30, sm: 32 }, fontSize: '0.8rem' }}>{authState.user?.name?.[0] || "U"}</Avatar>
+                </IconButton>
+              </MuiTooltip>
+              <IconButton onClick={logout} size="small" color="error" sx={{ p: { xs: 0.75, sm: 1 } }} aria-label="Logout">
+                <Logout fontSize="small" />
+              </IconButton>
             </Stack>
           </Toolbar>
         </AppBar>
 
         <Drawer
-          variant="persistent"
+          variant={isDesktop ? "persistent" : "temporary"}
           open={isDrawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          ModalProps={{ keepMounted: true }}
           sx={{
             width: DRAWER_WIDTH,
             [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: "border-box", borderRight: "1px solid #E2E8F0", bgcolor: "#F8FAFC" },
@@ -357,69 +615,195 @@ export default function App() {
           </Box>
         </Drawer>
 
+        <MuiMenu
+          anchorEl={profileAnchorEl}
+          open={profileMenuOpen}
+          onClose={closeProfileMenu}
+          PaperProps={{ sx: { width: 260, borderRadius: 3, mt: 1 } }}
+        >
+          <Box sx={{ px: 2, py: 1.5 }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Avatar sx={{ bgcolor: 'primary.main', width: 40, height: 40 }}>
+                {authState.user?.name?.[0] || 'U'}
+              </Avatar>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2" fontWeight={800} noWrap>
+                  {authState.user?.name || 'User'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {authState.user?.email || 'Signed in'}
+                </Typography>
+              </Box>
+            </Stack>
+          </Box>
+          <Divider />
+          <MenuItem onClick={() => { setActiveNav('settings'); closeProfileMenu(); }}>
+            <ListItemIcon>
+              <Settings fontSize="small" />
+            </ListItemIcon>
+            Settings
+          </MenuItem>
+          <MenuItem onClick={() => { setActiveNav('dashboard'); closeProfileMenu(); }}>
+            <ListItemIcon>
+              <DashboardIcon fontSize="small" />
+            </ListItemIcon>
+            Dashboard
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={() => { closeProfileMenu(); logout(); }} sx={{ color: 'error.main' }}>
+            <ListItemIcon sx={{ color: 'error.main' }}>
+              <Logout fontSize="small" />
+            </ListItemIcon>
+            Sign out
+          </MenuItem>
+        </MuiMenu>
+
         <Box component="main" sx={{
           flexGrow: 1,
-          p: 4,
-          transition: 'margin 0.3s ease-in-out',
-          marginLeft: isDrawerOpen ? 0 : `-${DRAWER_WIDTH}px`,
-          marginTop: 8
+          width: '100%',
+          minWidth: 0,
+          overflowX: 'hidden',
+          px: { xs: 1.5, sm: 2.5, md: 4 },
+          py: { xs: 1.5, sm: 3, md: 4 },
+          marginTop: { xs: 8, sm: 9 }
         }}>
 
           {activeNav === "dashboard" && (
-            <Box>
-              <Grid container spacing={4} mb={4}>
-                <Grid item xs={12} lg={8}>
-                  <ModernStorageHub totalSize={stats.totalSize} t={t} token={authState.token}
-                    onDeleteFile={async (id) => {
-                      try {
-                        await deleteFileMetadata(authState.token, id);
-                        setFiles(prev => prev.filter(f => f._id !== id));
-                        setMsg({ success: "File deleted successfully", error: "", warning: "" });
-                      } catch (e) {
-                        setMsg({ success: "", error: "Failed to delete file", warning: "" });
-                      }
-                    }} />
-                </Grid>
-                <Grid item xs={12} lg={4}>
-                  <Stack spacing={3}>
-                    <QuickActions onAction={(a) => {
+            <Box sx={{ width: '100%', display: 'grid', gap: { xs: 2.5, md: 4 }, maxWidth: 1440, mx: 'auto' }}>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: { xs: 2, sm: 3, md: 4 },
+                  borderRadius: 3,
+                  border: '1px solid #E2E8F0',
+                  bgcolor: '#FFFFFF',
+                  boxShadow: '0 12px 28px rgba(15, 23, 42, 0.04)'
+                }}
+              >
+                <Stack
+                  direction={{ xs: 'column', lg: 'row' }}
+                  spacing={2}
+                  alignItems={{ xs: 'flex-start', lg: 'center' }}
+                  justifyContent="space-between"
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 800, letterSpacing: 1.4 }}>
+                      Dashboard overview
+                    </Typography>
+                    <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: '1.5rem', sm: '1.9rem', md: '2.25rem' }, lineHeight: 1.1 }}>
+                      File intelligence workspace
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 760 }}>
+                      The page is arranged into clear sections so the storage hub, actions, categories, and activity feed use the full screen without wasted space.
+                    </Typography>
+                  </Box>
+
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ width: { xs: '100%', lg: 'auto' } }}>
+                    <Button variant="outlined" onClick={() => setActiveNav('files')} sx={{ borderRadius: 3, minWidth: { xs: '100%', sm: 150 } }}>
+                      Open search
+                    </Button>
+                    <Button variant="contained" onClick={() => setActiveNav('upload')} sx={{ borderRadius: 3, minWidth: { xs: '100%', sm: 150 } }}>
+                      Upload files
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Paper>
+
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 2fr) minmax(340px, 1fr)' }, gap: { xs: 2.5, md: 3.5 }, alignItems: 'start' }}>
+                <ModernStorageHub
+                  totalSize={stats.totalSize}
+                  t={t}
+                  token={authState.token}
+                  onDeleteFile={async (id) => {
+                    try {
+                      await deleteFileMetadata(authState.token, id);
+                      setFiles(prev => prev.filter(f => f._id !== id));
+                      setMsg({ success: "File deleted successfully", error: "", warning: "" });
+                    } catch (e) {
+                      setMsg({ success: "", error: "Failed to delete file", warning: "" });
+                    }
+                  }}
+                />
+
+                <Stack spacing={3} sx={{ minWidth: 0 }}>
+                  <QuickActions
+                    onAction={(a) => {
                       if (a === 'upload') setActiveNav('upload');
                       if (a === 'search') setActiveNav('files');
                       if (a === 'settings') setActiveNav('settings');
                       if (a === 'share') setIsShareOpen(true);
-                    }} t={t} />
-                    <StorageBreakdown stats={{ images: stats.images, docs: stats.docs, music: stats.music }} t={t} />
-                  </Stack>
-                </Grid>
-              </Grid>
-
-              <Box mb={5}>
-                <Typography variant="h6" fontWeight={800} mb={3} sx={{ opacity: 0.8 }}>{t.categories}</Typography>
-                <CategoryCards
-                  stats={{ images: stats.images, docs: stats.docs, music: stats.music, totalFiles: files.length }}
-                  onCategoryClick={(cat) => setSelectedCategory(selectedCategory === cat ? null : cat)}
-                  t={t}
-                />
+                    }}
+                    t={t}
+                  />
+                  
+                </Stack>
               </Box>
 
-              {selectedCategory && (
-                <Paper sx={{ p: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid #0061FF33', mb: 5, bgcolor: '#FFFFFF' }} elevation={0}>
-                  <Box p={3} borderBottom="1px solid #E2E8F0" display="flex" justifyContent="space-between" alignItems="center" bgcolor="rgba(0, 97, 255, 0.02)">
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      <Box sx={{ width: 8, height: 24, bgcolor: 'primary.main', borderRadius: 2 }} />
-                      <Typography variant="h6" fontWeight={900} color="primary">EXPLORING {selectedCategory.toUpperCase()}S</Typography>
-                    </Stack>
-                    <Button variant="outlined" size="small" onClick={() => setSelectedCategory(null)} sx={{ borderRadius: 3, fontWeight: 700, px: 3 }}>Close</Button>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: { xs: 2, sm: 3, md: 4 },
+                  borderRadius: 3,
+                  border: '1px solid #E2E8F0',
+                  bgcolor: '#FFFFFF',
+                  boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)'
+                }}
+              >
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                  <Box>
+                    <Typography variant="h6" fontWeight={900}>{t.categories}</Typography>
+                    <Typography variant="body2" color="text.secondary">Organized summaries by file type.</Typography>
                   </Box>
-                  <RecentFilesTable files={categorizedFiles} />
+                </Stack>
+                <Box sx={{ px: { xs: 0, sm: 0.5 } }}>
+                  <CategoryCards
+                    stats={{ images: stats.images, docs: stats.docs, code: stats.code, spreadsheets: stats.spreadsheets, presentations: stats.presentations, totalFiles: files.length }}
+                    onCategoryClick={(cat) => setSelectedCategory(selectedCategory === cat ? null : cat)}
+                    t={t}
+                  />
+                </Box>
+              </Paper>
+
+              {selectedCategory && (
+                <Paper sx={{ p: 0, borderRadius: 3, overflow: 'hidden', border: '1px solid #0061FF33', bgcolor: '#FFFFFF' }} elevation={0}>
+                  <Box
+                    sx={{
+                      p: { xs: 2, sm: 3 },
+                      borderBottom: '1px solid #E2E8F0',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: { xs: 'flex-start', sm: 'center' },
+                      gap: 2,
+                      flexDirection: { xs: 'column', sm: 'row' },
+                      bgcolor: 'rgba(0, 97, 255, 0.02)'
+                    }}
+                  >
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
+                      <Box sx={{ width: 8, height: 24, bgcolor: 'primary.main', borderRadius: 2, flexShrink: 0 }} />
+                      <Typography variant="h6" fontWeight={900} color="primary" noWrap>
+                        {selectedCategory.toUpperCase()} FILES
+                      </Typography>
+                    </Stack>
+                    <Button variant="outlined" size="small" onClick={() => setSelectedCategory(null)} sx={{ borderRadius: 3, fontWeight: 700, px: 3, alignSelf: { xs: 'stretch', sm: 'auto' } }}>
+                      Close
+                    </Button>
+                  </Box>
+                  <RecentFilesTable files={categorizedFiles} onDelete={handleDeleteFile} />
                 </Paper>
               )}
 
-              <Grid container spacing={4}>
-                <Grid item xs={12} lg={8}><ActivityFeed files={files} t={t} /></Grid>
-                <Grid item xs={12} lg={4}>
-                  <Paper sx={{ p: 4, borderRadius: 6, border: '1px solid #E2E8F0', bgcolor: '#F8FAFC' }} elevation={0}>
-                    <Typography variant="h6" fontWeight={800} mb={2}>{t.insights}</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 2fr) minmax(340px, 1fr)' }, gap: { xs: 2.5, md: 3.5 }, alignItems: 'start' }}>
+                <Paper sx={{ p: { xs: 2, sm: 3, md: 4 }, borderRadius: 3, border: '1px solid #E2E8F0', bgcolor: '#FFFFFF' }} elevation={0}>
+                  <Typography variant="h6" fontWeight={900} mb={1}>Recent activity</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    A live feed of recent uploads and indexing activity.
+                  </Typography>
+                  <ActivityFeed files={files} t={t} />
+                </Paper>
+
+                <Stack spacing={3} sx={{ minWidth: 0 }}>
+                  <Paper sx={{ p: { xs: 2, sm: 3, md: 4 }, borderRadius: 3, border: '1px solid #E2E8F0', bgcolor: '#F8FAFC' }} elevation={0}>
+                    <Typography variant="h6" fontWeight={900} mb={2}>{t.insights}</Typography>
                     <Stack spacing={2}>
                       <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, border: '1px solid #E2E8F0' }}>
                         <Typography variant="caption" color="text.secondary">{t.syncStatus}</Typography>
@@ -431,9 +815,8 @@ export default function App() {
                       </Box>
                     </Stack>
                   </Paper>
-                  <SecurityCard t={t} />
-                </Grid>
-              </Grid>
+                </Stack>
+              </Box>
             </Box>
           )}
 
@@ -456,15 +839,7 @@ export default function App() {
               <FileExplorerPane
                 files={searchResults}
                 searchQuery={searchQuery}
-                onDelete={async (id) => {
-                  try {
-                    await deleteFileMetadata(authState.token, id);
-                    setServerSearchResults(prev => prev.filter(f => f._id !== id && f.id !== id));
-                    setMsg({ success: "File deleted successfully", error: "", warning: "" });
-                  } catch (e) {
-                    setMsg({ success: "", error: "Failed to delete file", warning: "" });
-                  }
-                }}
+                onDelete={handleDeleteFile}
               />
             </Stack>
           )}
@@ -473,7 +848,7 @@ export default function App() {
             <Box py={2} maxWidth={900} mx="auto">
               <Grid container spacing={4}>
                 <Grid item xs={12} md={stagingFiles.length > 0 ? 6 : 12}>
-                  <Paper sx={{ p: 6, border: '2px dashed #0061FF', bgcolor: 'rgba(0, 97, 255, 0.02)', borderRadius: 8, textAlign: 'center' }} elevation={0}>
+                  <Paper sx={{ p: 6, border: '2px dashed #0061FF', bgcolor: 'rgba(0, 97, 255, 0.02)', borderRadius: 4, textAlign: 'center' }} elevation={0}>
                     <FileUpload sx={{ fontSize: 80, color: 'primary.main', mb: 2 }} />
                     <Typography variant="h4" mb={1} fontWeight={900}>Lexicon Indexer</Typography>
                     <Typography color="text.secondary" mb={4}>Staging area for content extraction</Typography>
@@ -522,7 +897,7 @@ export default function App() {
               animate={{ opacity: 1, scale: 1, top: ['30%', '25%', '25%', '60%', '5%'][guideStep], left: ['5%', '35%', '85%', '40%', '50%'][guideStep] }}
               style={{ position: 'absolute', transform: 'translate(-50%, -50%)' }}
             >
-              <Paper sx={{ p: 4, borderRadius: 6, maxWidth: 300, border: '3px solid #0061FF' }}>
+              <Paper sx={{ p: 4, borderRadius: 3, maxWidth: 300, border: '3px solid #0061FF' }}>
                 <Stack spacing={2.5}>
                   <Typography variant="h6" fontWeight={900}>{[t.mainMenu, t.storageHub, "Actions", t.categories, "Search"][guideStep]}</Typography>
                   <Typography variant="body2" sx={{ lineHeight: 1.6 }}>

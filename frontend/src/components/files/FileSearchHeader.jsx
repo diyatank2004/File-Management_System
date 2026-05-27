@@ -55,7 +55,9 @@ export default function FileSearchHeader({
                         <MenuItem value="all">All Types</MenuItem>
                         <MenuItem value="image">Images</MenuItem>
                         <MenuItem value="doc">Documents (PDF/Docx/Txt)</MenuItem>
-                        <MenuItem value="music">Audio Files</MenuItem>
+                        <MenuItem value="spreadsheet">Spreadsheets (XLS/XLSX/CSV)</MenuItem>
+                        <MenuItem value="presentation">Presentations (PPT/PPTX)</MenuItem>
+                        <MenuItem value="code">Code Files</MenuItem>
                     </Select>
                 </FormControl>
 

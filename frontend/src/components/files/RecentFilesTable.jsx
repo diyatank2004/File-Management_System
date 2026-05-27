@@ -1,7 +1,8 @@
 import React from 'react';
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography } from '@mui/material';
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Typography, IconButton, Tooltip } from '@mui/material';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 
-export default function RecentFilesTable({ files }) {
+export default function RecentFilesTable({ files, onDelete }) {
     const hasSnippets = files.some(f => f.snippet);
 
     return (
@@ -12,6 +13,7 @@ export default function RecentFilesTable({ files }) {
                         <TableCell sx={{ fontWeight: 700 }}>Name file</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Last Edit</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Size</TableCell>
+                                                {onDelete && <TableCell sx={{ fontWeight: 700, width: 96 }}>Action</TableCell>}
                         {hasSnippets && <TableCell sx={{ fontWeight: 700 }}>Content Snippet</TableCell>}
                     </TableRow>
                 </TableHead>
@@ -22,6 +24,19 @@ export default function RecentFilesTable({ files }) {
                                 <TableCell sx={{ fontWeight: 600, color: 'primary.main' }}>{file.filename || file.name}</TableCell>
                                 <TableCell>{new Date(file.createdAt || Date.now()).toLocaleDateString()}</TableCell>
                                 <TableCell>{(file.size / 1024 / 1024).toFixed(2)} MB</TableCell>
+                                                                {onDelete && (
+                                                                    <TableCell>
+                                                                        <Tooltip title="Delete file">
+                                                                            <IconButton
+                                                                                color="error"
+                                                                                size="small"
+                                                                                onClick={() => onDelete(file._id || file.id)}
+                                                                            >
+                                                                                <DeleteOutlineRoundedIcon fontSize="small" />
+                                                                            </IconButton>
+                                                                        </Tooltip>
+                                                                    </TableCell>
+                                                                )}
                                 {hasSnippets && (
                                     <TableCell sx={{ maxWidth: 300 }}>
                                         <Typography
@@ -43,7 +58,7 @@ export default function RecentFilesTable({ files }) {
                         ))
                     ) : (
                         <TableRow>
-                            <TableCell colSpan={3} align="center" sx={{ py: 8 }}>
+                            <TableCell colSpan={3 + (onDelete ? 1 : 0) + (hasSnippets ? 1 : 0)} align="center" sx={{ py: 8 }}>
                                 <Typography variant="body1" color="text.secondary" fontWeight={600}>
                                     No files found in this category.
                                 </Typography>

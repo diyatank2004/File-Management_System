@@ -6,7 +6,7 @@ async function testUpload() {
     const email = `test${Date.now()}@gmail.com`;
     const password = "Password@123";
     
-    let res = await fetch("http://localhost:5500/api/auth/register", {
+    let res = await fetch("http://localhost:5000/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Test User", email, password })
@@ -15,7 +15,7 @@ async function testUpload() {
     let data = await res.json();
     if (!res.ok) {
         console.log("Register failed:", data);
-        res = await fetch("http://localhost:5500/api/auth/login", {
+        res = await fetch("http://localhost:5000/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: "test@gmail.com", password: "Password@123" }) // fallback
@@ -34,7 +34,7 @@ async function testUpload() {
                  `--${boundary}--`;
 
     console.log("Uploading file...");
-    const uploadRes = await fetch("http://localhost:5500/api/files/upload", {
+    const uploadRes = await fetch("http://localhost:5000/api/files/upload", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,

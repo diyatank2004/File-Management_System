@@ -12,11 +12,11 @@ import fileRoutes from "./routes/fileRoutes.js";
 dotenv.config();
 
 const app = express();
-const DEFAULT_PORT = parseInt(process.env.PORT, 10) || 5500;
+const DEFAULT_PORT = parseInt(process.env.PORT, 10) || 5000;
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
 async function getAvailablePort(startPort) {
-  let port = Number.isInteger(startPort) ? startPort : 5500;
+  let port = Number.isInteger(startPort) ? startPort : 5000;
   while (port < 65535) {
     const available = await new Promise((resolve) => {
       const tester = net.createServer()
@@ -33,7 +33,7 @@ async function getAvailablePort(startPort) {
     if (available) return port;
     port += 1;
   }
-  throw new Error("No available ports found between 5500 and 65535.");
+  throw new Error("No available ports found between 5000 and 65535.");
 }
 
 // Rate limiting for security

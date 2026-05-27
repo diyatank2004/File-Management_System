@@ -95,6 +95,7 @@ export async function getFiles(req, res, next) {
   try {
     const { query, mode, type, dateRange, date } = req.query;
     const filter = {};
+    const queryClauses = [];
 
     if (req.user && req.user.id) {
       filter.uploadedBy = req.user.id;
@@ -103,7 +104,19 @@ export async function getFiles(req, res, next) {
     }
 
     if (type && type !== "all" && type !== "both" && type !== "content") {
-      filter.fileType = type;
+      if (type === "doc") {
+        // doc should match PDFs and standard document types (not spreadsheets/presentations)
+        queryClauses.push({
+          $or: [
+            { fileType: "pdf" },
+            { fileType: "document" },
+            { mimetype: /(?:pdf|word|text|msword)/i },
+            { filename: /\.(pdf|doc|docx|txt|md)$/i }
+          ]
+        });
+      } else {
+        filter.fileType = type;
+      }
     }
 
     const activeDateRange = dateRange || date || 'all';
@@ -147,6 +160,14 @@ export async function getFiles(req, res, next) {
         ];
         useRegexFallback = true;
       }
+    }
+
+    if (queryClauses.length > 0) {
+      const baseFilter = { ...filter };
+      Object.keys(filter).forEach((key) => {
+        delete filter[key];
+      });
+      filter.$and = [...queryClauses, baseFilter];
     }
 
     console.log("[LEXICON_DB_DEBUG] Executing Filter Object:", JSON.stringify(filter, null, 2));
@@ -239,12 +260,36 @@ export async function uploadAndIndex(req, res, next) {
       });
     }
 
-    const isPdf = mimetype === "application/pdf" || originalname.toLowerCase().endsWith(".pdf");
+    const lowerName = originalname.toLowerCase();
+    const isPdf = mimetype === "application/pdf" || lowerName.endsWith(".pdf");
     const isImage = mimetype.startsWith("image/");
+    const isBlockedUpload = mimetype.startsWith("audio/") || /\.(mp3|wav|ogg|flac|m4a|aac|wma)$/i.test(lowerName);
+
+    if (isBlockedUpload) {
+      return res.status(400).json({
+        message: "Unsupported upload type. Please upload code files or other supported documents instead."
+      });
+    }
+
+    // Determine file type more accurately by extension/mimetype
+    const isCode = /\.(js|jsx|ts|tsx|py|java|c|cpp|cs|go|rs|sql|html|css|json|xml|sh|yml|yaml|php|rb|dart|kt|swift|lua)$/i.test(lowerName)
+      || /(?:javascript|typescript|json|xml|sql|python|x-python|html|css|shell|bash)/i.test(mimetype);
+
+    const isSpreadsheet = /\.(xls|xlsx|csv)$/i.test(lowerName) || /(?:excel|spreadsheet)/i.test(mimetype);
+    const isPresentation = /\.(ppt|pptx)$/i.test(lowerName) || /(?:powerpoint|presentation)/i.test(mimetype);
+    const isDoc = /\.(doc|docx|txt|md)$/i.test(lowerName) || /(?:word|text|msword)/i.test(mimetype);
+
+    let fileTypeValue = 'other';
+    if (isPdf) fileTypeValue = 'pdf';
+    else if (isImage) fileTypeValue = 'image';
+    else if (isSpreadsheet) fileTypeValue = 'spreadsheet';
+    else if (isPresentation) fileTypeValue = 'presentation';
+    else if (isDoc) fileTypeValue = 'document';
+    else if (isCode) fileTypeValue = 'code';
 
     const file = await File.create({
       filename: originalname,
-      fileType: isPdf ? "pdf" : (isImage ? "image" : (mimetype.startsWith("audio") ? "music" : "other")),
+      fileType: fileTypeValue,
       mimetype,
       size,
       content: clientExtractedText.replace(/\s+/g, ' ').trim(),
@@ -257,7 +302,7 @@ export async function uploadAndIndex(req, res, next) {
 
     return res.status(201).json({
       message: "File successfully indexed",
-      file: { id: file._id, filename: file.filename, type: file.fileType }
+      file: { id: file._id, filename: file.filename, fileType: file.fileType, type: file.fileType }
     });
 
   } catch (error) {

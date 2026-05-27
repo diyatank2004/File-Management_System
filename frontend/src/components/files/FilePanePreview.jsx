@@ -89,11 +89,11 @@ export default function FilePanePreview({ file, searchQuery, onDelete, isLoading
   };
 
   // Get file type color
-  const getFileTypeColor = (mimetype) => {
-    const type = mimetype?.toLowerCase() || "";
+  const getFileTypeColor = () => {
+    const type = (file.fileType || file.type || file.mimetype || "").toLowerCase();
     if (type.includes("image")) return "info";
     if (type.includes("pdf")) return "error";
-    if (type.includes("audio") || type.includes("music")) return "warning";
+    if (type.includes("code") || type.includes("javascript") || type.includes("typescript") || type.includes("json") || type.includes("xml") || type.includes("python")) return "secondary";
     if (type.includes("doc") || type.includes("word") || type.includes("text"))
       return "success";
     return "default";
@@ -221,9 +221,9 @@ export default function FilePanePreview({ file, searchQuery, onDelete, isLoading
                 Type
               </Typography>
               <Chip
-                label={(file.mimetype?.split("/")[1] || file.fileType || "File").toUpperCase()}
+                label={(file.fileType || file.mimetype?.split("/")[1] || "File").toUpperCase()}
                 size="small"
-                color={getFileTypeColor(file.mimetype)}
+                color={getFileTypeColor()}
                 variant="outlined"
                 sx={{ mt: 0.5 }}
               />
